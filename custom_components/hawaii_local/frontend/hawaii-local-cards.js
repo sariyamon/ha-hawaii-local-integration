@@ -15,7 +15,7 @@
  * Common options: entity (any one entity of the switch), entities (pick keys
  * yourself), exclude, names, finish, indicator, show_names, name.
  */
-const VERSION = "0.3.2";
+const VERSION = "0.3.3";
 
 /* ------------------------------------------------------------------ looks */
 
@@ -162,35 +162,57 @@ function toggleCall(hass, id) {
  * "rows" are horizontal bars (two keys each, left and right), "grid" shows
  * every split. Returns {cols, rows, cells:[{c,r}], module, lines:{v:[],h:[]}}.
  */
-export function panelLayout(n, layout = "auto") {
+export function panelLayout(n, layout = "auto", columns = null) {
   n = Math.max(1, Math.min(n, 12));
   let mode = layout === "auto" ? (n === 4 || n > 8 ? "grid" : "columns") : layout;
-  if (n > 8 && mode === "columns") mode = "grid"; // no real panel has more than 4 bars
+  if (n > 10 && mode === "columns") mode = "grid"; // no real panel has more than 5 bars
+  const force = Number(columns) > 0 ? Math.min(Number(columns), n, 6) : null;
   let cols;
   let rows;
   if (mode === "rows") {
-    rows = n <= 3 ? n : Math.ceil(n / 2);
-    cols = n <= 3 ? 1 : 2;
+    cols = force || (n <= 3 ? 1 : 2);
+    rows = Math.ceil(n / cols);
   } else if (mode === "grid") {
-    cols = n <= 2 ? n : n <= 4 ? 2 : n <= 6 ? 3 : n <= 8 ? 4 : 4;
+    const best = { 1: 1, 2: 2, 3: 3, 4: 2, 5: 3, 6: 3, 7: 4, 8: 4, 9: 3, 10: 5, 11: 4, 12: 4 };
+    cols = force || best[n];
     rows = Math.ceil(n / cols);
   } else {
-    cols = n <= 3 ? n : Math.ceil(n / 2);
-    rows = n <= 3 ? 1 : 2;
+    cols = force || (n <= 3 ? n : Math.ceil(n / 2));
+    rows = Math.ceil(n / cols);
   }
+  // Fill order: bars top-to-bottom for "columns", left-to-right otherwise. A gap
+  // left at the end is filled by stretching the last key (like a single tall key).
   const cells = [];
-  if (mode === "rows") {
-    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) cells.push({ c, r });
+  const spare = cols * rows - n;
+  if (mode === "columns") {
+    for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) cells.push({ c, r, cs: 1, rs: 1 });
+    cells.length = n;
+    if (spare) cells[n - 1].rs = rows - cells[n - 1].r;
+    // if a whole bar would be left over, spread it: stretch the last key across it too
+    const last = cells[n - 1];
+    if (last.c < cols - 1) last.cs = cols - last.c;
   } else {
-    // column-major so keys read top-to-bottom within a bar, then the next bar
-    for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) cells.push({ c, r });
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) cells.push({ c, r, cs: 1, rs: 1 });
+    cells.length = n;
+    if (spare) cells[n - 1].cs = cols - cells[n - 1].c;
   }
   const module = cols >= 5 ? 8 : cols === 4 ? 4 : 2;
   // taller than a real 2-row panel: keep keys roughly square
   const ratio = rows > 2 && module > 2 ? (MODULE_RATIO[module] * 2) / rows : MODULE_RATIO[module];
-  const v = mode === "rows" && cols > 1 ? [] : Array.from({ length: cols - 1 }, (_, i) => i + 1);
-  const h = mode === "columns" && rows > 1 ? [] : Array.from({ length: rows - 1 }, (_, i) => i + 1);
-  return { mode, cols, rows, cells: cells.slice(0, n), module, ratio, lines: { v, h } };
+  // grooves between neighbouring keys (columns: only between bars; rows: only between rows)
+  const vs = new Map();
+  const hs = new Map();
+  for (const k of cells) {
+    const right = k.c + k.cs;
+    if (right < cols && !(mode === "rows" && cols > 1)) {
+      for (let r = k.r; r < k.r + k.rs; r++) vs.set(`${right}:${r}`, { x: right, y1: r, y2: r + 1 });
+    }
+    const bottom = k.r + k.rs;
+    if (bottom < rows && !(mode === "columns" && rows > 1)) {
+      for (let c = k.c; c < k.c + k.cs; c++) hs.set(`${bottom}:${c}`, { y: bottom, x1: c, x2: c + 1 });
+    }
+  }
+  return { mode, cols, rows, cells, module, ratio, segs: { v: [...vs.values()], h: [...hs.values()] } };
 }
 
 const MODULE_RATIO = { 2: 1, 4: 135 / 75, 8: 230 / 79 };
@@ -475,9 +497,15 @@ class HawaiiBaseCard extends HTMLElement {
   }
 
   _lines(layout, origin = { left: 0, top: 0, width: 100, height: 100 }) {
-    const { cols, rows, lines } = layout;
-    const v = lines.v.map((i) => `<span class="vline" style="left:${origin.left + (origin.width * i) / cols}%;top:${origin.top}%;bottom:${100 - origin.top - origin.height}%"></span>`);
-    const h = lines.h.map((i) => `<span class="hline" style="top:${origin.top + (origin.height * i) / rows}%;left:${origin.left}%;right:${100 - origin.left - origin.width}%"></span>`);
+    const { cols, rows } = layout;
+    const X = (x) => origin.left + (origin.width * x) / cols;
+    const Y = (y) => origin.top + (origin.height * y) / rows;
+    const segs = layout.segs || {
+      v: layout.lines.v.map((x) => ({ x, y1: 0, y2: rows })),
+      h: layout.lines.h.map((y) => ({ y, x1: 0, x2: cols })),
+    };
+    const v = segs.v.map((g) => `<span class="vline" style="left:${X(g.x)}%;top:${Y(g.y1)}%;bottom:${100 - Y(g.y2)}%"></span>`);
+    const h = segs.h.map((g) => `<span class="hline" style="top:${Y(g.y)}%;left:${X(g.x1)}%;right:${100 - X(g.x2)}%"></span>`);
     return v.join("") + h.join("");
   }
 
@@ -514,6 +542,8 @@ const LABELS = {
   entities: "Keys (optional – leave empty to show every key of the switch)",
   exclude: "Hide these keys",
   layout: "Key layout",
+  key_count: "Number of keys (empty = all)",
+  columns: "Columns (empty = automatic)",
   finish: "Finish",
   indicator: "Indicator light",
   show_names: "Show key names",
@@ -528,7 +558,7 @@ const computeLabel = (s) => LABELS[s.name] ?? s.name;
 
 class HawaiiKeySwitchCard extends HawaiiBaseCard {
   _keys() {
-    return resolveKeys(this._hass, this._config).slice(0, this._config.max_keys || 12);
+    return resolveKeys(this._hass, this._config).slice(0, Number(this._config.key_count) || this._config.max_keys || 12);
   }
 
   _watched() {
@@ -542,11 +572,11 @@ class HawaiiKeySwitchCard extends HawaiiBaseCard {
   _render() {
     const ids = this._keys();
     if (!ids.length) return this._empty("Pick a switch: choose any one of its entities.");
-    const layout = panelLayout(ids.length, this._config.layout || "auto");
+    const layout = panelLayout(ids.length, this._config.layout || "auto", this._config.columns);
     const cells = ids
       .map((id, i) => {
-        const { c, r } = layout.cells[i];
-        return this._keyHtml(id, { extra: `style="grid-column:${c + 1};grid-row:${r + 1}"` });
+        const { c, r, cs, rs } = layout.cells[i];
+        return this._keyHtml(id, { extra: `style="grid-column:${c + 1} / span ${cs};grid-row:${r + 1} / span ${rs}"` });
       })
       .join("");
     this._frame(
@@ -559,7 +589,7 @@ class HawaiiKeySwitchCard extends HawaiiBaseCard {
 
   getGridOptions() {
     const n = this._hass && this._config ? this._keys().length : 3;
-    const wide = panelLayout(n, this._config?.layout).module > 2;
+    const wide = panelLayout(n, this._config?.layout, this._config?.columns).module > 2;
     return { columns: wide ? 12 : 6, min_columns: 4, rows: "auto" };
   }
 
@@ -581,6 +611,14 @@ class HawaiiKeySwitchCard extends HawaiiBaseCard {
             },
           },
         },
+        {
+          type: "grid",
+          name: "",
+          schema: [
+            { name: "key_count", selector: { number: { min: 1, max: 12, step: 1, mode: "box" } } },
+            { name: "columns", selector: { number: { min: 1, max: 6, step: 1, mode: "box" } } },
+          ],
+        },
         ...LOOK_SCHEMA,
         { name: "entities", selector: { entity: { multiple: true, domain: KEY_DOMAINS } } },
         { name: "exclude", selector: { entity: { multiple: true, domain: KEY_DOMAINS } } },
@@ -600,7 +638,7 @@ class HawaiiKeySocketCard extends HawaiiKeySwitchCard {
   _keys() {
     return resolveKeys(this._hass, this._config)
       .filter((id) => id !== this._config.socket)
-      .slice(0, 6);
+      .slice(0, Math.min(Number(this._config.key_count) || 6, 6));
   }
 
   _watched() {
@@ -612,11 +650,11 @@ class HawaiiKeySocketCard extends HawaiiKeySwitchCard {
     if (!ids.length) return this._empty("Pick a switch: choose any one of its entities.");
     // keys take the left part (like the real 4 / 6 key + socket panels), socket the right
     const keyArea = ids.length > 4 ? 62 : 50;
-    const layout = panelLayout(ids.length, this._config.layout || (ids.length === 4 ? "grid" : "columns"));
+    const layout = panelLayout(ids.length, this._config.layout || (ids.length === 4 ? "grid" : "columns"), this._config.columns);
     const cells = ids
       .map((id, i) => {
-        const { c, r } = layout.cells[i];
-        return this._keyHtml(id, { extra: `style="grid-column:${c + 1};grid-row:${r + 1}"` });
+        const { c, r, cs, rs } = layout.cells[i];
+        return this._keyHtml(id, { extra: `style="grid-column:${c + 1} / span ${cs};grid-row:${r + 1} / span ${rs}"` });
       })
       .join("");
     const sock = this._config.socket;

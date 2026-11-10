@@ -56,6 +56,8 @@ layout: columns                      # auto | columns | rows | grid
 finish: black                        # black | grey | gold | white | silver
 indicator: blue                      # blue | white | amber | green
 exclude: [switch.office_channel_119] # hide keys you don't use
+key_count: 6                         # or show only the first 6 keys
+columns: 3                           # optional: force the number of columns
 ```
 
 The cards work with any switch, light, curtain or fan in Home Assistant, not only Hawaii Local devices.
