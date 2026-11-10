@@ -60,6 +60,15 @@ key_count: 6                         # or show only the first 6 keys
 columns: 3                           # optional: force the number of columns
 ```
 
+**Your own keys:** in the card editor, the **Keys** list has one row per key in position order. Change any key to another entity (from any switch), give it a name, move it with the arrows, remove it, or add more. **Use the whole switch again** goes back to automatic. In YAML:
+
+```yaml
+entities:
+  - switch.office_chandelier_1
+  - entity: switch.living_cove
+    name: Cove
+```
+
 The cards work with any switch, light, curtain or fan in Home Assistant, not only Hawaii Local devices.
 
 ![Hawaii switch cards](docs/cards.png)

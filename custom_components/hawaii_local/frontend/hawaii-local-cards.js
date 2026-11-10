@@ -15,7 +15,7 @@
  * Common options: entity (any one entity of the switch), entities (pick keys
  * yourself), exclude, names, finish, indicator, show_names, name.
  */
-const VERSION = "0.3.3";
+const VERSION = "0.3.4";
 
 /* ------------------------------------------------------------------ looks */
 
@@ -593,38 +593,10 @@ class HawaiiKeySwitchCard extends HawaiiBaseCard {
     return { columns: wide ? 12 : 6, min_columns: 4, rows: "auto" };
   }
 
-  static getConfigForm() {
-    return {
-      schema: [
-        { name: "entity", required: true, selector: { entity: { domain: KEY_DOMAINS } } },
-        {
-          name: "layout",
-          selector: {
-            select: {
-              mode: "dropdown",
-              options: [
-                { value: "auto", label: "Automatic" },
-                { value: "columns", label: "Columns (vertical keys)" },
-                { value: "rows", label: "Rows (horizontal keys)" },
-                { value: "grid", label: "Grid" },
-              ],
-            },
-          },
-        },
-        {
-          type: "grid",
-          name: "",
-          schema: [
-            { name: "key_count", selector: { number: { min: 1, max: 12, step: 1, mode: "box" } } },
-            { name: "columns", selector: { number: { min: 1, max: 6, step: 1, mode: "box" } } },
-          ],
-        },
-        ...LOOK_SCHEMA,
-        { name: "entities", selector: { entity: { multiple: true, domain: KEY_DOMAINS } } },
-        { name: "exclude", selector: { entity: { multiple: true, domain: KEY_DOMAINS } } },
-      ],
-      computeLabel,
-    };
+  static getConfigElement() {
+    const el = document.createElement("hawaii-keys-editor");
+    el.kind = "switch";
+    return el;
   }
 
   static getStubConfig(hass) {
@@ -674,10 +646,10 @@ class HawaiiKeySocketCard extends HawaiiKeySwitchCard {
     return { columns: 12, min_columns: 6, rows: "auto" };
   }
 
-  static getConfigForm() {
-    const base = HawaiiKeySwitchCard.getConfigForm();
-    base.schema.splice(2, 0, { name: "socket", selector: { entity: { domain: ["switch"] } } });
-    return base;
+  static getConfigElement() {
+    const el = document.createElement("hawaii-keys-editor");
+    el.kind = "socket";
+    return el;
   }
 }
 
@@ -1099,6 +1071,233 @@ class HawaiiKnobKeysCard extends HawaiiKnobDimmerCard {
     return { entity: pickEntity(hass, ["light"]) || "", corner_keys: "presets", finish: "black", indicator: "blue", label_color: "amber" };
   }
 }
+
+
+/* ------------------------------------------------------------------ key editor */
+
+/** General settings of the key cards (the keys themselves are edited row by row). */
+function keyCardSchema(kind, custom) {
+  return [
+    { name: "entity", selector: { entity: { domain: KEY_DOMAINS } } },
+    ...(kind === "socket" ? [{ name: "socket", selector: { entity: { domain: ["switch"] } } }] : []),
+    {
+      name: "layout",
+      selector: {
+        select: {
+          mode: "dropdown",
+          options: [
+            { value: "auto", label: "Automatic" },
+            { value: "columns", label: "Columns (vertical keys)" },
+            { value: "rows", label: "Rows (horizontal keys)" },
+            { value: "grid", label: "Grid" },
+          ],
+        },
+      },
+    },
+    {
+      type: "grid",
+      name: "",
+      schema: [
+        ...(custom ? [] : [{ name: "key_count", selector: { number: { min: 1, max: 12, step: 1, mode: "box" } } }]),
+        { name: "columns", selector: { number: { min: 1, max: 6, step: 1, mode: "box" } } },
+      ],
+    },
+    ...LOOK_SCHEMA,
+  ];
+}
+
+const SVG = {
+  up: "M7 14l5-5 5 5",
+  down: "M7 10l5 5 5-5",
+  remove: "M7 7l10 10M17 7L7 17",
+  add: "M12 6v12M6 12h12",
+};
+const btnIcon = (d) =>
+  `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`;
+
+const EDITOR_STYLE = `
+:host { display:block; }
+.head { display:flex; align-items:baseline; justify-content:space-between; margin:20px 0 4px; }
+.head b { font-weight:500; font-size:15px; color:var(--primary-text-color); }
+.head span { font-size:12px; color:var(--secondary-text-color); }
+.hint { font-size:12px; color:var(--secondary-text-color); margin:0 0 10px; line-height:1.4; }
+.row { display:grid; grid-template-columns:24px minmax(0,1fr) minmax(0,38%) auto; gap:6px; align-items:center; margin-bottom:8px; }
+.num { width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  font-size:12px; font-weight:600; color:var(--text-primary-color, #fff); background:var(--primary-color); }
+.row ha-selector { display:block; min-width:0; }
+.nm { box-sizing:border-box; width:100%; height:56px; padding:0 12px; font:inherit; font-size:14px; color:var(--primary-text-color);
+  background:var(--input-fill-color, var(--secondary-background-color)); border:none; border-bottom:1px solid var(--input-idle-line-color, var(--secondary-text-color));
+  border-radius:4px 4px 0 0; outline:none; }
+.nm:focus { border-bottom:2px solid var(--primary-color); }
+.btns { display:flex; }
+.btns button, .actions button { display:inline-flex; align-items:center; justify-content:center; gap:6px; border:none; background:none;
+  color:var(--secondary-text-color); cursor:pointer; border-radius:50%; width:32px; height:32px; padding:0; }
+.btns button:hover:not([disabled]) { background:rgba(127,127,127,.15); color:var(--primary-text-color); }
+.btns button[disabled] { opacity:.3; cursor:default; }
+.actions { display:flex; gap:12px; flex-wrap:wrap; margin-top:4px; }
+.actions button { width:auto; height:36px; padding:0 14px; border-radius:18px; font:inherit; font-size:14px; font-weight:500;
+  color:var(--primary-color); border:1px solid var(--divider-color, rgba(127,127,127,.3)); }
+.actions button:hover { background:rgba(127,127,127,.1); }
+.empty { font-size:13px; color:var(--secondary-text-color); padding:8px 0; }
+`;
+
+class HawaiiKeysEditor extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this.kind = "switch";
+    this._rows = [];
+    this._emitted = "";
+  }
+
+  setConfig(config) {
+    const json = JSON.stringify(config);
+    this._config = { ...config };
+    if (json === this._emitted) return; // our own change coming back: keep focus
+    this._rows = null;
+    this._render();
+  }
+
+  set hass(hass) {
+    const first = !this._hass;
+    this._hass = hass;
+    this.shadowRoot.querySelectorAll("ha-form, ha-selector").forEach((el) => {
+      el.hass = hass;
+    });
+    if (first && this._config) {
+      this._rows = null;
+      this._render();
+    }
+  }
+
+  get _custom() {
+    return Array.isArray(this._config?.entities) && this._config.entities.length > 0;
+  }
+
+  /** Current keys as editable rows: the custom list, or the switch's keys (automatic). */
+  _loadRows() {
+    const c = this._config;
+    if (this._custom) return c.entities.map((e) => (typeof e === "string" ? { entity: e, name: "" } : { entity: e.entity, name: e.name || "" }));
+    if (!this._hass) return [];
+    let ids = resolveKeys(this._hass, c);
+    if (this.kind === "socket") ids = ids.filter((id) => id !== c.socket).slice(0, 6);
+    return ids.slice(0, Number(c.key_count) || 12).map((id) => ({ entity: id, name: "" }));
+  }
+
+  _emit(config) {
+    this._config = config;
+    this._emitted = JSON.stringify(config);
+    this.dispatchEvent(new CustomEvent("config-changed", { detail: { config }, bubbles: true, composed: true }));
+  }
+
+  /** Save the rows as the card's own key list (positions = row order). */
+  _saveRows(rerender = true) {
+    const keys = this._rows
+      .filter((r) => r.entity)
+      .map((r) => (r.name ? { entity: r.entity, name: r.name } : r.entity));
+    const config = { ...this._config };
+    delete config.exclude;
+    delete config.key_count;
+    if (keys.length) config.entities = keys;
+    else delete config.entities;
+    if (!config.entity && keys.length) config.entity = typeof keys[0] === "string" ? keys[0] : keys[0].entity;
+    this._emit(config);
+    if (rerender) this._render();
+  }
+
+  _render() {
+    if (!this._config) return;
+    if (!this._rows) this._rows = this._loadRows();
+    const custom = this._custom;
+    const order =
+      (this._config.layout || "auto") === "rows" || (this._config.layout || "auto") === "grid"
+        ? "left to right, row by row"
+        : "top to bottom in each bar, bars left to right";
+    this.shadowRoot.innerHTML = `<style>${EDITOR_STYLE}</style>
+      <ha-form></ha-form>
+      <div class="head"><b>Keys</b><span>${custom ? "Your own keys" : "Automatic – every key of the switch"}</span></div>
+      <div class="hint">Each row is one key, in position order (${order}). Change a key to any entity, give it a name, or move it with the arrows.</div>
+      <div class="rows">${this._rows.length ? "" : '<div class="empty">No keys yet – pick a switch above or add a key.</div>'}</div>
+      <div class="actions">
+        <button class="add">${btnIcon(SVG.add)}Add key</button>
+        ${custom ? '<button class="reset">Use the whole switch again</button>' : ""}
+      </div>`;
+
+    const form = this.shadowRoot.querySelector("ha-form");
+    form.hass = this._hass;
+    form.data = this._config;
+    form.schema = keyCardSchema(this.kind, custom);
+    form.computeLabel = computeLabel;
+    form.addEventListener("value-changed", (ev) => {
+      const next = { ...this._config, ...ev.detail.value };
+      for (const k of Object.keys(next)) if (next[k] === undefined || next[k] === "") delete next[k];
+      const switchChanged = next.entity !== this._config.entity && !custom;
+      const countChanged = next.key_count !== this._config.key_count && !custom;
+      this._emit(next);
+      if (switchChanged || countChanged) {
+        this._rows = null;
+        this._render();
+      }
+    });
+
+    const list = this.shadowRoot.querySelector(".rows");
+    this._rows.forEach((row, i) => {
+      const el = document.createElement("div");
+      el.className = "row";
+      el.innerHTML = `<span class="num">${i + 1}</span><span class="pick"></span>
+        <input class="nm" placeholder="${esc(row.entity && this._hass ? keyName(this._hass, {}, row.entity) : "Name")}" value="${esc(row.name)}" aria-label="Key ${i + 1} name">
+        <span class="btns">
+          <button class="up" title="Move up" ${i === 0 ? "disabled" : ""}>${btnIcon(SVG.up)}</button>
+          <button class="down" title="Move down" ${i === this._rows.length - 1 ? "disabled" : ""}>${btnIcon(SVG.down)}</button>
+          <button class="del" title="Remove key">${btnIcon(SVG.remove)}</button>
+        </span>`;
+      const picker = document.createElement("ha-selector");
+      picker.hass = this._hass;
+      picker.selector = { entity: { domain: KEY_DOMAINS } };
+      picker.value = row.entity || "";
+      picker.required = false;
+      picker.addEventListener("value-changed", (ev) => {
+        ev.stopPropagation();
+        row.entity = ev.detail.value || "";
+        row.name = row.name || "";
+        this._saveRows(true);
+      });
+      el.querySelector(".pick").replaceWith(picker);
+      el.querySelector(".nm").addEventListener("change", (ev) => {
+        row.name = ev.target.value.trim();
+        this._saveRows(false);
+      });
+      const move = (d) => {
+        const j = i + d;
+        [this._rows[i], this._rows[j]] = [this._rows[j], this._rows[i]];
+        this._saveRows(true);
+      };
+      el.querySelector(".up").addEventListener("click", () => move(-1));
+      el.querySelector(".down").addEventListener("click", () => move(1));
+      el.querySelector(".del").addEventListener("click", () => {
+        this._rows.splice(i, 1);
+        this._saveRows(true);
+      });
+      list.appendChild(el);
+    });
+
+    this.shadowRoot.querySelector(".add").addEventListener("click", () => {
+      this._rows.push({ entity: "", name: "" });
+      this._render(); // saved once a key is picked
+      const pickers = this.shadowRoot.querySelectorAll("ha-selector");
+      pickers[pickers.length - 1]?.scrollIntoView({ block: "nearest" });
+    });
+    this.shadowRoot.querySelector(".reset")?.addEventListener("click", () => {
+      const config = { ...this._config };
+      delete config.entities;
+      this._emit(config);
+      this._rows = null;
+      this._render();
+    });
+  }
+}
+
+if (!customElements.get("hawaii-keys-editor")) customElements.define("hawaii-keys-editor", HawaiiKeysEditor);
 
 /* ------------------------------------------------------------------ register */
 
