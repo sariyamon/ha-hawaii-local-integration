@@ -15,7 +15,7 @@
  * Common options: entity (any one entity of the switch), entities (pick keys
  * yourself), exclude, names, finish, indicator, show_names, name.
  */
-const VERSION = "0.3.4";
+const VERSION = "0.3.5";
 
 /* ------------------------------------------------------------------ looks */
 
@@ -1121,7 +1121,13 @@ const EDITOR_STYLE = `
 .head b { font-weight:500; font-size:15px; color:var(--primary-text-color); }
 .head span { font-size:12px; color:var(--secondary-text-color); }
 .hint { font-size:12px; color:var(--secondary-text-color); margin:0 0 10px; line-height:1.4; }
-.row { display:grid; grid-template-columns:24px minmax(0,1fr) minmax(0,38%) auto; gap:6px; align-items:center; margin-bottom:8px; }
+.row { display:grid; grid-template-columns:24px minmax(0,1fr) auto; grid-template-areas:"num pick btns" ". name name"; column-gap:8px; row-gap:6px;
+  align-items:center; padding:10px 0 12px; border-bottom:1px solid var(--divider-color, rgba(127,127,127,.2)); }
+.row:last-child { border-bottom:none; }
+.num { grid-area:num; }
+.row > ha-selector { grid-area:pick; }
+.nm { grid-area:name; height:44px !important; }
+.btns { grid-area:btns; }
 .num { width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center;
   font-size:12px; font-weight:600; color:var(--text-primary-color, #fff); background:var(--primary-color); }
 .row ha-selector { display:block; min-width:0; }
@@ -1225,7 +1231,7 @@ class HawaiiKeysEditor extends HTMLElement {
 
     const form = this.shadowRoot.querySelector("ha-form");
     form.hass = this._hass;
-    form.data = this._config;
+    form.data = { layout: "auto", finish: "black", indicator: "blue", show_names: true, background: true, ...this._config };
     form.schema = keyCardSchema(this.kind, custom);
     form.computeLabel = computeLabel;
     form.addEventListener("value-changed", (ev) => {
@@ -1245,7 +1251,7 @@ class HawaiiKeysEditor extends HTMLElement {
       const el = document.createElement("div");
       el.className = "row";
       el.innerHTML = `<span class="num">${i + 1}</span><span class="pick"></span>
-        <input class="nm" placeholder="${esc(row.entity && this._hass ? keyName(this._hass, {}, row.entity) : "Name")}" value="${esc(row.name)}" aria-label="Key ${i + 1} name">
+        <input class="nm" placeholder="Name on the key: ${esc(row.entity && this._hass ? keyName(this._hass, {}, row.entity) : "")}" value="${esc(row.name)}" aria-label="Key ${i + 1} name">
         <span class="btns">
           <button class="up" title="Move up" ${i === 0 ? "disabled" : ""}>${btnIcon(SVG.up)}</button>
           <button class="down" title="Move down" ${i === this._rows.length - 1 ? "disabled" : ""}>${btnIcon(SVG.down)}</button>
