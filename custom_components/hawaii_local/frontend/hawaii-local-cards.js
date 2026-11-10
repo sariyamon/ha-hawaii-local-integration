@@ -15,7 +15,7 @@
  * Common options: entity (any one entity of the switch), entities (pick keys
  * yourself), exclude, names, finish, indicator, show_names, name.
  */
-const VERSION = "0.3.1";
+const VERSION = "0.3.2";
 
 /* ------------------------------------------------------------------ looks */
 
@@ -228,6 +228,7 @@ const ICONS = {
   close: '<path d="M6 9l6 6 6-6" />',
   pause: '<path d="M9.5 7v10M14.5 7v10" />',
   power: '<path d="M12 4v7" /><path d="M7.2 7.2a7 7 0 1 0 9.6 0" />',
+  bulb: '<path d="M9.2 17.5h5.6M10 20.5h4" /><path d="M12 3.5a5.8 5.8 0 0 0-3.4 10.5c.6.5 1 1.1 1 1.9v.6h4.8V16c0-.8.4-1.4 1-1.9A5.8 5.8 0 0 0 12 3.5z" /><path d="M2.8 9.5h1.4M19.8 9.5h1.4M5.2 3.4l1 1M18.8 3.4l-1 1" />',
 };
 const icon = (name) =>
   `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
@@ -296,6 +297,28 @@ ha-card.bare { background:none; box-shadow:none; border:none; padding:6px 0; }
 .knob .unit { font: 600 9px/1 var(--ha-font-family-body, system-ui); letter-spacing:.14em; color: color-mix(in srgb, var(--hl-ind) 80%, #fff); text-transform:uppercase; }
 .knob.off .unit { color: rgba(255,255,255,.35); }
 .knob .center { position:absolute; inset:30%; border-radius:50%; cursor:pointer; }
+.knob.glass { background:
+    radial-gradient(circle, rgba(255,255,255,.085) 0 1.1px, transparent 1.7px) 50% 50% / 6.4% 6.4%,
+    radial-gradient(circle at 50% 32%, #16181c 0%, var(--hl-lcd) 72%);
+  box-shadow: 0 0 0 1.5px rgba(0,0,0,.65), 0 0 0 3px rgba(255,255,255,.07), inset 0 4px 16px rgba(0,0,0,.9), 0 10px 26px -6px rgba(0,0,0,.6); }
+.knob.glass::after { content:""; position:absolute; inset:0; border-radius:50%; pointer-events:none;
+  background: linear-gradient(160deg, rgba(255,255,255,.18) 0%, rgba(255,255,255,.03) 30%, transparent 48%); }
+.knob.glass .track { stroke-width:2.4; stroke:rgba(255,255,255,.07); }
+.knob.glass .arc { stroke-width:2.4; }
+.knob.glass .halo { fill:none; stroke:var(--hl-ind); stroke-width:1.1; opacity:.9; filter: drop-shadow(0 0 2px var(--hl-ind)); }
+.knob.glass.off .halo { opacity:.25; filter:none; }
+.knob.glass .readout { flex-direction:row; gap:4%; inset:26%; }
+.knob.glass .seg { width:66%; }
+.knob.glass .pct { font: 600 11px/1 var(--ha-font-family-body, system-ui); color:var(--hl-ind); align-self:center; opacity:.95; }
+.knob.glass.off .pct { color:rgba(255,255,255,.35); }
+.ck { position:absolute; width:50%; height:50%; box-sizing:border-box; padding:8.5%; display:flex; flex-direction:row; z-index:3; }
+.ck .cklabel { font: 700 clamp(10px, 5.2cqw, 17px)/1 var(--ha-font-family-body, system-ui); letter-spacing:.01em; white-space:nowrap;
+  color: color-mix(in srgb, var(--hl-label) 78%, transparent); text-shadow: 0 0 4px color-mix(in srgb, var(--hl-label) 35%, transparent); transition: all .25s ease; }
+.ck .cklabel.name { font-size: clamp(8px, 3.4cqw, 12px); letter-spacing:.06em; text-transform:uppercase; white-space:normal; max-width:70%; line-height:1.2; }
+.ck.on .cklabel { color: var(--hl-label); text-shadow: 0 0 6px var(--hl-label), 0 0 14px color-mix(in srgb, var(--hl-label) 60%, transparent); }
+.ck .ico { width:clamp(18px, 8cqw, 28px); height:auto; color: color-mix(in srgb, var(--hl-ind) 70%, transparent); }
+.ck.on .ico { color: var(--hl-ind); filter: drop-shadow(0 0 5px var(--hl-ind)); }
+.ck.on { background:none; }
 .scenes { position:absolute; left:0; right:0; bottom:7%; display:flex; justify-content:center; gap:22%; z-index:5; }
 .scene { font: 600 9px/1 var(--ha-font-family-body, system-ui); letter-spacing:.12em; color:var(--hl-text); padding:6px 8px; cursor:pointer; border-radius:6px; text-transform:uppercase; }
 .scene.on { color:var(--hl-ind); text-shadow:0 0 6px var(--hl-ind); }
@@ -351,7 +374,9 @@ class HawaiiBaseCard extends HTMLElement {
     const f = FINISHES[this._config.finish] || FINISHES.black;
     const ind = (INDICATORS[this._config.indicator] || {}).color || this._config.indicator || INDICATORS.blue.color;
     const onText = f.light ? f.text.replace(/[\d.]+\)$/, "1)") : `color-mix(in srgb, ${f.text} 65%, ${ind})`;
-    return `--hl-on-text:${onText};--hl-plate:${f.plate};--hl-rim:${f.rim};--hl-line:${f.line};--hl-line-hi:${f.lineHi};--hl-text:${f.text};--hl-dot:${f.dot};--hl-engrave:${f.engrave};--hl-lcd:${f.lcd};--hl-ind:${ind};${extra}`;
+    const baseLabel = (INDICATORS[this._config.label_color] || {}).color || this._config.label_color || INDICATORS.amber.color;
+    const label = f.light ? `color-mix(in srgb, ${baseLabel} 62%, #2a1600)` : baseLabel; // stays readable on light plates
+    return `--hl-label:${label};--hl-on-text:${onText};--hl-plate:${f.plate};--hl-rim:${f.rim};--hl-line:${f.line};--hl-line-hi:${f.lineHi};--hl-text:${f.text};--hl-dot:${f.dot};--hl-engrave:${f.engrave};--hl-lcd:${f.lcd};--hl-ind:${ind};${extra}`;
   }
 
   _frame(inner, module = 2, ratio = null, cols = 3) {
@@ -427,6 +452,7 @@ class HawaiiBaseCard extends HTMLElement {
     this._haptic();
     const { act, entity } = el.dataset;
     if (act === "toggle") toggleCall(this._hass, entity);
+    else if (act === "preset") this._setLevel(entity, Number(el.dataset.pct));
     else if (act === "cover") this._hass.callService("cover", el.dataset.service, { entity_id: entity });
   }
 
@@ -767,7 +793,7 @@ class HawaiiKnobDimmerCard extends HawaiiBaseCard {
     return b == null ? 100 : Math.max(1, Math.round((b / 255) * 100));
   }
 
-  _knobHtml(size = "64%") {
+  _knobHtml(size = "64%", glass = false) {
     const id = this._light();
     const st = this._hass.states[id];
     const on = isOn(st);
@@ -777,13 +803,16 @@ class HawaiiKnobDimmerCard extends HawaiiBaseCard {
     const thumbA = ((ARC_START + (ARC_SWEEP * pct) / 100) * Math.PI) / 180;
     const ind = (INDICATORS[this._config.indicator] || {}).color || INDICATORS.blue.color;
     const digits = on || this._preview != null ? String(pct).padStart(2, " ") : "--";
-    return `<div class="knob ${on || this._preview != null ? "" : "off"} ${unavailable(st) ? "off-line" : ""}" style="--hl-knob:${size}" data-knob="${esc(id)}">
-      <svg class="ring" viewBox="0 0 100 100">
+    const readout = glass
+      ? `<div class="readout"><span class="pct">%</span>${sevenSegment(digits, on ? ind : "rgba(255,255,255,.55)", "rgba(255,255,255,.045)")}</div>`
+      : `<div class="readout">${sevenSegment(digits, on ? ind : "rgba(255,255,255,.55)", "rgba(255,255,255,.05)")}<span class="unit">${domainOf(id || "light.x") === "cover" ? "% open" : "% level"}</span></div>`;
+    return `<div class="knob ${glass ? "glass" : ""} ${on || this._preview != null ? "" : "off"} ${unavailable(st) ? "off-line" : ""}" style="--hl-knob:${size}" data-knob="${esc(id)}" data-glass="${glass ? 1 : ""}">
+      <svg class="ring" viewBox="0 0 100 100">${glass ? '<circle class="halo" cx="50" cy="50" r="37"/>' : ""}
         <path class="track" d="${arcPath(50, 50, r)}"/>
         <path class="arc" d="${arcPath(50, 50, r)}" stroke-dasharray="${len}" stroke-dashoffset="${len * (1 - pct / 100)}"/>
         <circle class="thumb" cx="${(50 + r * Math.cos(thumbA)).toFixed(2)}" cy="${(50 + r * Math.sin(thumbA)).toFixed(2)}" r="3.2"/>
       </svg>
-      <div class="readout">${sevenSegment(digits, on ? ind : "rgba(255,255,255,.55)", "rgba(255,255,255,.05)")}<span class="unit">${domainOf(id || "light.x") === "cover" ? "% open" : "% level"}</span></div>
+      ${readout}
       <div class="center" role="button" tabindex="0" aria-label="Toggle ${esc(keyName(this._hass, this._config, id))}" data-act="toggle" data-entity="${esc(id)}"></div>
     </div>`;
   }
@@ -873,7 +902,7 @@ class HawaiiKnobDimmerCard extends HawaiiBaseCard {
     const knob = this.shadowRoot.querySelector("[data-knob]");
     if (!knob) return;
     const tmp = document.createElement("div");
-    tmp.innerHTML = this._knobHtml(knob.style.getPropertyValue("--hl-knob") || "64%");
+    tmp.innerHTML = this._knobHtml(knob.style.getPropertyValue("--hl-knob") || "64%", !!knob.dataset.glass);
     const fresh = tmp.firstElementChild;
     knob.querySelector("svg.ring").replaceWith(fresh.querySelector("svg.ring"));
     knob.querySelector(".readout").replaceWith(fresh.querySelector(".readout"));
@@ -915,33 +944,74 @@ class HawaiiKnobDimmerCard extends HawaiiBaseCard {
 
 /* ------------------------------------------------------------------ knob + keys */
 
+/** Corner order: top-left, top-right, bottom-left, bottom-right – as on the real dimmer panel. */
+const DEFAULT_PRESETS = ["60%", "100%", "power", "30%"];
+const CORNERS = [
+  "left:0;top:0;justify-content:flex-start;align-items:flex-start",
+  "right:0;top:0;justify-content:flex-end;align-items:flex-start",
+  "left:0;bottom:0;justify-content:flex-start;align-items:flex-end",
+  "right:0;bottom:0;justify-content:flex-end;align-items:flex-end",
+];
+
+/** "30%" / "30" -> 30, "power" / "on/off" -> "power", "light.x" -> entity. */
+export function parseCorner(item) {
+  const raw = String(item ?? "").trim();
+  if (!raw) return null;
+  if (raw.includes(".")) return { kind: "entity", id: raw };
+  if (/^(power|on\/off|onoff|toggle)$/i.test(raw)) return { kind: "power" };
+  const n = parseInt(raw, 10);
+  if (!Number.isNaN(n)) return { kind: "preset", pct: Math.max(1, Math.min(100, n)) };
+  return null;
+}
+
 class HawaiiKnobKeysCard extends HawaiiKnobDimmerCard {
-  _cornerKeys() {
-    let ids = this._config.keys;
-    if (!Array.isArray(ids) || !ids.length) {
-      const light = this._light();
-      ids = resolveKeys(this._hass, { ...this._config, entities: [] }).filter((id) => id !== light);
+  setConfig(config) {
+    super.setConfig({ label_color: "amber", ...config });
+  }
+
+  _cornerItems() {
+    const c = this._config;
+    let items;
+    if (c.corner_keys === "keys" || (Array.isArray(c.keys) && c.keys.length && c.corner_keys !== "presets")) {
+      let ids = Array.isArray(c.keys) && c.keys.length ? c.keys : null;
+      if (!ids) {
+        const light = this._light();
+        ids = resolveKeys(this._hass, { ...c, entities: [] }).filter((id) => id !== light);
+      }
+      items = ids.map((id) => ({ kind: "entity", id }));
+    } else {
+      const list = typeof c.presets === "string" ? c.presets.split(",") : Array.isArray(c.presets) ? c.presets : DEFAULT_PRESETS;
+      items = list.map(parseCorner);
     }
-    return ids.slice(0, 4);
+    return items.slice(0, 4);
   }
 
   _watched() {
-    return [this._light(), ...this._cornerKeys()].filter(Boolean);
+    return [this._light(), ...this._cornerItems().filter((k) => k && k.kind === "entity").map((k) => k.id)].filter(Boolean);
+  }
+
+  _cornerHtml(item, i) {
+    if (!item) return "";
+    const light = this._light();
+    const lst = this._hass.states[light];
+    const off = unavailable(lst) ? "off-line" : "";
+    if (item.kind === "power") {
+      return `<div class="key ck ${isOn(lst) ? "on" : ""} ${off}" role="button" tabindex="0" aria-label="On / off" data-act="toggle" data-entity="${esc(light)}" style="${CORNERS[i]}">${icon("bulb")}</div>`;
+    }
+    if (item.kind === "preset") {
+      const active = isOn(lst) && Math.abs(this._percent(lst) - item.pct) <= 3;
+      return `<div class="key ck ${active ? "on" : ""} ${off}" role="button" tabindex="0" aria-label="${item.pct}%" data-act="preset" data-pct="${item.pct}" data-entity="${esc(light)}" style="${CORNERS[i]}"><span class="cklabel">${item.pct}%</span></div>`;
+    }
+    const st = this._hass.states[item.id];
+    const name = keyName(this._hass, this._config, item.id);
+    return `<div class="key ck ${isOn(st) ? "on" : ""} ${unavailable(st) ? "off-line" : ""}" role="button" tabindex="0" aria-label="${esc(name)}" data-act="toggle" data-entity="${esc(item.id)}" style="${CORNERS[i]}"><span class="cklabel name" style="text-align:${i % 2 ? "right" : "left"}">${esc(name)}</span></div>`;
   }
 
   _render() {
     if (!this._light()) return this._empty("Pick a dimmable light.");
-    const pos = [
-      "left:0;top:0", "right:0;top:0", "left:0;bottom:0", "right:0;bottom:0",
-    ];
-    const keys = this._cornerKeys()
-      .map((id, i) =>
-        this._keyHtml(id, {
-          extra: `style="position:absolute;${pos[i]};width:50%;height:50%;justify-content:${i < 2 ? "flex-start" : "flex-end"};align-items:${i % 2 ? "flex-end" : "flex-start"};padding:7% 7%;box-sizing:border-box;gap:6px"`,
-        }),
-      )
-      .join("");
-    this._frame(`<div class="grid" style="display:block">${keys}</div>` + this._knobHtml("52%"), 2);
+    const corners = this._cornerItems().map((k, i) => this._cornerHtml(k, i)).join("");
+    const cross = `<span class="vline" style="left:50%"></span><span class="hline" style="top:50%"></span>`;
+    this._frame(cross + corners + this._knobHtml("60%", true), 2);
     this._bindKnob();
   }
 
@@ -949,12 +1019,46 @@ class HawaiiKnobKeysCard extends HawaiiKnobDimmerCard {
     return {
       schema: [
         { name: "entity", required: true, selector: { entity: { domain: ["light", "fan", "cover"] } } },
+        {
+          name: "corner_keys",
+          selector: {
+            select: {
+              mode: "dropdown",
+              options: [
+                { value: "presets", label: "Dimmer keys (on/off and levels)" },
+                { value: "keys", label: "Relays or scenes" },
+              ],
+            },
+          },
+        },
+        { name: "presets", selector: { text: {} } },
         { name: "keys", selector: { entity: { multiple: true, domain: KEY_DOMAINS } } },
-        ...LOOK_SCHEMA,
+        {
+          type: "grid",
+          name: "",
+          schema: [
+            { name: "finish", selector: { select: { mode: "dropdown", options: FINISH_OPTIONS } } },
+            { name: "indicator", selector: { select: { mode: "dropdown", options: INDICATOR_OPTIONS } } },
+          ],
+        },
+        { name: "label_color", selector: { select: { mode: "dropdown", options: INDICATOR_OPTIONS } } },
+        { name: "background", selector: { boolean: {} } },
+        { name: "name", selector: { text: {} } },
       ],
       computeLabel: (s) =>
-        s.name === "entity" ? "Dimmable light (or fan / curtain)" : s.name === "keys" ? "Corner keys (optional – up to 4; empty = the switch's other keys)" : computeLabel(s),
+        ({
+          entity: "Dimmable light (or fan / curtain)",
+          corner_keys: "Corner keys",
+          presets: "Dimmer keys, top-left → bottom-right (e.g. 60%, 100%, power, 30%)",
+          keys: "Relay / scene keys (up to 4; empty = the switch's other keys)",
+          indicator: "Display and on/off colour",
+          label_color: "Key label colour",
+        })[s.name] ?? computeLabel(s),
     };
+  }
+
+  static getStubConfig(hass) {
+    return { entity: pickEntity(hass, ["light"]) || "", corner_keys: "presets", finish: "black", indicator: "blue", label_color: "amber" };
   }
 }
 
@@ -972,7 +1076,7 @@ const CARDS = [
   ["hawaii-key-socket-card", HawaiiKeySocketCard, "Hawaii Keys + Socket", "4 module panel: keys on the left, universal socket on the right."],
   ["hawaii-curtain-switch-card", HawaiiCurtainSwitchCard, "Hawaii Curtain Switch", "Open / pause / close keys with position bar; one or two curtains."],
   ["hawaii-knob-dimmer-card", HawaiiKnobDimmerCard, "Hawaii Knob Dimmer", "Rotary dimmer with a round level display – drag the ring, tap the centre."],
-  ["hawaii-knob-keys-card", HawaiiKnobKeysCard, "Hawaii Knob + Keys", "Rotary dimmer ringed by four keys."],
+  ["hawaii-knob-keys-card", HawaiiKnobKeysCard, "Hawaii Knob + 4 Keys", "Round dimmer display with four corner keys: on/off, 30%, 60%, 100% – or relays and scenes."],
 ];
 
 for (const [tag, cls, name, description] of CARDS) {

@@ -45,7 +45,7 @@ Hawaii Local adds switch cards that look like Hawaii Automations wall switches. 
 | `custom:hawaii-key-socket-card` | Keys + universal socket (4 module); the socket can be a smart socket |
 | `custom:hawaii-curtain-switch-card` | Open / pause / close with position bar; one or two curtains |
 | `custom:hawaii-knob-dimmer-card` | Rotary dimmer with round level display – drag the ring, scroll, or tap the centre; optional Sc1 / Sc2 scene keys |
-| `custom:hawaii-knob-keys-card` | Rotary dimmer ringed by four keys |
+| `custom:hawaii-knob-keys-card` | Round dimmer display with four corner keys: on/off, 30 %, 60 %, 100 % (set your own with `presets: 60%, 100%, power, 30%`), or relays / scenes with `corner_keys: keys` |
 
 Finishes: black glass, aluminium grey, champagne gold, white glass, brushed silver. Indicator lights: ice blue, warm white, amber, green.
 
