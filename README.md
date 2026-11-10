@@ -16,7 +16,7 @@ Sign in with your **Smart Life / Tuya Smart** app once, and control your Tuya sw
 - **Reset and re-pair recovery.** When a device is reset or re-paired in the Tuya app (new key, sometimes a new ID), Hawaii Local notices the failed login, re-imports from your Tuya account and reconnects. Entity IDs, dashboards and automations stay the same, because devices are tracked by hardware rather than Tuya ID.
 - **Works without internet.** Devices and keys are cached locally. The Tuya cloud is only a fallback for devices that can't be reached on your network.
 
-Phase 1 covers **on/off data points**: switches, multi-gang switches, sockets, scene-switch relays and gateway sub-devices. Dimmers, curtains, sensors and locks come next.
+Covers switches, multi-gang switches, sockets, scene-switch relays, gateway sub-devices, curtain switches and dimmers. Sensors and locks come next.
 
 ## Install
 
