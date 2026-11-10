@@ -15,7 +15,7 @@
  * Common options: entity (any one entity of the switch), entities (pick keys
  * yourself), exclude, names, finish, indicator, show_names, name.
  */
-const VERSION = "0.3.0";
+const VERSION = "0.3.1";
 
 /* ------------------------------------------------------------------ looks */
 
@@ -164,14 +164,15 @@ function toggleCall(hass, id) {
  */
 export function panelLayout(n, layout = "auto") {
   n = Math.max(1, Math.min(n, 12));
-  let mode = layout === "auto" ? (n === 4 ? "grid" : "columns") : layout;
+  let mode = layout === "auto" ? (n === 4 || n > 8 ? "grid" : "columns") : layout;
+  if (n > 8 && mode === "columns") mode = "grid"; // no real panel has more than 4 bars
   let cols;
   let rows;
   if (mode === "rows") {
     rows = n <= 3 ? n : Math.ceil(n / 2);
     cols = n <= 3 ? 1 : 2;
   } else if (mode === "grid") {
-    cols = n <= 2 ? n : n <= 4 ? 2 : n <= 6 ? 3 : Math.ceil(n / 2);
+    cols = n <= 2 ? n : n <= 4 ? 2 : n <= 6 ? 3 : n <= 8 ? 4 : 4;
     rows = Math.ceil(n / cols);
   } else {
     cols = n <= 3 ? n : Math.ceil(n / 2);
@@ -185,9 +186,11 @@ export function panelLayout(n, layout = "auto") {
     for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) cells.push({ c, r });
   }
   const module = cols >= 5 ? 8 : cols === 4 ? 4 : 2;
+  // taller than a real 2-row panel: keep keys roughly square
+  const ratio = rows > 2 && module > 2 ? (MODULE_RATIO[module] * 2) / rows : MODULE_RATIO[module];
   const v = mode === "rows" && cols > 1 ? [] : Array.from({ length: cols - 1 }, (_, i) => i + 1);
   const h = mode === "columns" && rows > 1 ? [] : Array.from({ length: rows - 1 }, (_, i) => i + 1);
-  return { mode, cols, rows, cells: cells.slice(0, n), module, lines: { v, h } };
+  return { mode, cols, rows, cells: cells.slice(0, n), module, ratio, lines: { v, h } };
 }
 
 const MODULE_RATIO = { 2: 1, 4: 135 / 75, 8: 230 / 79 };
@@ -245,7 +248,7 @@ ha-card { display:block; padding:16px; background:var(--hl-card-bg, var(--ha-car
 ha-card.bare { background:none; box-shadow:none; border:none; padding:6px 0; }
 .wrap { display:flex; flex-direction:column; align-items:center; gap:10px; }
 .title { font: 500 13px/1.2 var(--ha-font-family-body, system-ui); letter-spacing:.06em; text-transform:uppercase; color:var(--secondary-text-color); text-align:center; }
-.plate { position:relative; width:100%; border-radius:var(--hl-radius,7px); background:var(--hl-plate); box-shadow:
+.plate { position:relative; width:100%; container-type:inline-size; border-radius:var(--hl-radius,7px); background:var(--hl-plate); box-shadow:
   0 0 0 1px var(--hl-rim), 0 1px 0 1px rgba(255,255,255,.04), 0 10px 24px -8px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.25);
   overflow:hidden; user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent; touch-action:manipulation; }
 .plate::after { content:""; position:absolute; inset:0; pointer-events:none; border-radius:inherit;
@@ -263,7 +266,7 @@ ha-card.bare { background:none; box-shadow:none; border:none; padding:6px 0; }
 .key.off-line { opacity:.42; cursor:default; }
 .dot { width:5px; height:5px; border-radius:50%; background:var(--hl-dot); transition: all .25s ease; flex:none; }
 .key.on .dot { background:var(--hl-ind); box-shadow:0 0 6px 1px var(--hl-ind), 0 0 14px 2px color-mix(in srgb, var(--hl-ind) 55%, transparent); }
-.label { font: 500 10.5px/1.25 var(--ha-font-family-body, system-ui); letter-spacing:.09em; text-transform:uppercase;
+.label { font: 500 clamp(7.5px, calc(100cqw / var(--hl-cols, 3) / 9.5), 11px)/1.25 var(--ha-font-family-body, system-ui); letter-spacing:.09em; text-transform:uppercase;
   color:var(--hl-text); text-align:center; max-width:88%; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
 .key.on .label { color: var(--hl-on-text); }
 .ico { width:22px; height:22px; color:var(--hl-engrave); }
@@ -351,14 +354,14 @@ class HawaiiBaseCard extends HTMLElement {
     return `--hl-on-text:${onText};--hl-plate:${f.plate};--hl-rim:${f.rim};--hl-line:${f.line};--hl-line-hi:${f.lineHi};--hl-text:${f.text};--hl-dot:${f.dot};--hl-engrave:${f.engrave};--hl-lcd:${f.lcd};--hl-ind:${ind};${extra}`;
   }
 
-  _frame(inner, module = 2) {
+  _frame(inner, module = 2, ratio = null, cols = 3) {
     const c = this._config;
     const title = this._title();
     const width = MODULE_WIDTH[module];
     this.shadowRoot.innerHTML = `<style>${STYLE}</style>
       <ha-card class="${c.background === false ? "bare" : ""}">
         <div class="wrap" style="${this._vars()}">
-          <div class="plate" style="max-width:${width}px;aspect-ratio:${MODULE_RATIO[module]}">${inner}</div>
+          <div class="plate" style="max-width:${width}px;aspect-ratio:${ratio || MODULE_RATIO[module]};--hl-cols:${cols}">${inner}</div>
           ${title ? `<div class="title">${esc(title)}</div>` : ""}
         </div>
       </ha-card>`;
@@ -523,6 +526,8 @@ class HawaiiKeySwitchCard extends HawaiiBaseCard {
     this._frame(
       `<div class="grid" style="grid-template-columns:repeat(${layout.cols},1fr);grid-template-rows:repeat(${layout.rows},1fr)">${cells}</div>${this._lines(layout)}`,
       this._config.module || layout.module,
+      this._config.module ? null : layout.ratio,
+      layout.cols,
     );
   }
 
