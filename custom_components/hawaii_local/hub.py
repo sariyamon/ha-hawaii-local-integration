@@ -572,23 +572,30 @@ class HawaiiHub:
         return stable in self.local_online or bool(dev and dev.cloud_online)
 
     async def async_set(self, stable: str, dp: str, value: Any) -> None:
+        await self.async_set_many(stable, {dp: value})
+
+    async def async_set_many(self, stable: str, values: dict[str, Any]) -> None:
+        """Send one or more data points together (locally, else via the Tuya cloud)."""
         dev = self.devices[stable]
         ep = self.endpoint_of(stable)
         conn = self.connections.get(ep) if ep else None
         if conn is not None and not conn.is_alive():
             self._restart(ep)  # worker stopped unexpectedly: start a fresh one
             conn = None
-        sent = conn is not None and stable in self.local_online and conn.send(stable, {dp: value})
+        sent = conn is not None and stable in self.local_online and conn.send(stable, dict(values))
         if not sent:
-            spec = dev.dps.get(dp)
-            if not spec or not spec.code or not dev.cloud_online or self._cloud is None:
+            if not dev.cloud_online or self._cloud is None:
                 raise HomeAssistantError(f"{dev.name} is not reachable right now")
-            try:
-                await self.hass.async_add_executor_job(self._cloud.send, dev.id, spec.code, value)
-            except CloudError as err:
-                raise HomeAssistantError(f"{dev.name}: {err}") from err
-            dev.cloud_status[spec.code] = value
-        self.state.setdefault(stable, {})[dp] = value
+            for dp, value in values.items():
+                spec = dev.dps.get(dp)
+                if not spec or not spec.code:
+                    raise HomeAssistantError(f"{dev.name} is not reachable right now")
+                try:
+                    await self.hass.async_add_executor_job(self._cloud.send, dev.id, spec.code, value)
+                except CloudError as err:
+                    raise HomeAssistantError(f"{dev.name}: {err}") from err
+                dev.cloud_status[spec.code] = value
+        self.state.setdefault(stable, {}).update(values)
         async_dispatcher_send(self.hass, SIGNAL_DEVICE_UPDATE.format(stable))
 
 

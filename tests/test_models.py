@@ -34,3 +34,19 @@ def test_gateway_listed_as_sub_is_still_a_gateway() -> None:
     assert gw.is_gateway and not gw.sub
     assert DeviceInfo.from_dict(gw.to_dict()).is_gateway
     assert [s.code for s in gw.switch_dps()] == ["alarm_switch"]
+
+
+def test_value_ranges_from_profile() -> None:
+    dev = SimpleNamespace(
+        id="d1", name="Dimmer", local_key="k", category="tgkg", sub=False, uuid="u1", online=True,
+        status={}, status_range={},
+        function={"bright_value_1": SimpleNamespace(type="Integer", values='{"min":10,"max":1000,"scale":0,"step":1}')},
+        local_strategy={2: {"status_code": "bright_value_1",
+                            "config_item": {"valueType": "Integer", "valueDesc": '{"min":10,"max":1000}'}},
+                        1: {"status_code": "switch_led_1", "config_item": {"valueType": "Boolean"}}},
+    )
+    info = from_cloud(dev)
+    assert info.dps["2"].values == {"min": 10, "max": 1000, "scale": 0, "step": 1}
+    from custom_components.hawaii_local.models import light_channels
+
+    assert [(c["switch"].dp, c["bright"].dp) for c in light_channels(info)] == [("1", "2")]

@@ -219,6 +219,38 @@ async def test_odd_gateway_replies_dont_stop_control(hass: HomeAssistant, lan) -
     await hass.config_entries.async_unload(entry.entry_id)
 
 
+async def test_curtain_and_dimmer(hass: HomeAssistant, lan) -> None:
+    from .conftest import CURTAIN_NODE, DIMMER_NODE
+
+    entry = await _setup(hass)
+    hub = entry.runtime_data
+    await _broadcast_all(hass, hub, lan)
+    await wait_for(hass, lambda: {CURTAIN_NODE, DIMMER_NODE} <= hub.local_online)
+    gw = lan.hosts["192.168.0.87"]
+
+    cover = hass.states.get("cover.curtain_curtain")
+    assert cover.attributes["current_position"] == 40
+    assert cover.attributes["connection"] == "local"
+    await hass.services.async_call("cover", "open_cover", {"entity_id": "cover.curtain_curtain"}, blocking=True)
+    await wait_for(hass, lambda: (CURTAIN_NODE, {"1": "open"}) in gw.received)
+    await hass.services.async_call("cover", "stop_cover", {"entity_id": "cover.curtain_curtain"}, blocking=True)
+    await wait_for(hass, lambda: (CURTAIN_NODE, {"1": "stop"}) in gw.received)
+    await hass.services.async_call("cover", "set_cover_position",
+                                   {"entity_id": "cover.curtain_curtain", "position": 70}, blocking=True)
+    await wait_for(hass, lambda: (CURTAIN_NODE, {"2": 70}) in gw.received)
+
+    light = hass.states.get("light.dimmer_light")
+    assert light.state == "off"
+    assert hass.states.get("switch.dimmer_switch_led_1") is None  # the light replaces it
+    await hass.services.async_call("light", "turn_on", {"entity_id": "light.dimmer_light", "brightness": 128},
+                                   blocking=True)
+    await wait_for(hass, lambda: (DIMMER_NODE, {"1": True, "2": 502}) in gw.received)
+    await wait_for(hass, lambda: hass.states.get("light.dimmer_light").attributes.get("brightness") == 128)
+    await hass.services.async_call("light", "turn_off", {"entity_id": "light.dimmer_light"}, blocking=True)
+    await wait_for(hass, lambda: hass.states.get("light.dimmer_light").state == "off")
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
 async def test_networks_option(hass: HomeAssistant, lan) -> None:
     entry = await _setup(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)

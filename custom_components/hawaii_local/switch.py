@@ -14,7 +14,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from .const import SIGNAL_NEW_DPS
 from .entity import HawaiiEntity
 from .hub import HawaiiHub
-from .models import CONFIG_CODES, DANGEROUS_CODES, dp_name
+from .models import CONFIG_CODES, DANGEROUS_CODES, dp_name, light_channels
 
 
 async def async_setup_entry(
@@ -31,7 +31,8 @@ async def async_setup_entry(
             dev = hub.devices.get(stable)
             if dev is None or dev.is_gateway:
                 continue
-            specs = dev.switch_dps()
+            lights = {ch["switch"].dp for ch in light_channels(dev)}
+            specs = [s for s in dev.switch_dps() if s.dp not in lights]
             for spec in specs:
                 uid = f"{stable}_{spec.dp}"
                 if uid not in added:
@@ -58,7 +59,10 @@ def _remove_unwanted(hass: HomeAssistant, entry: ConfigEntry, hub: HawaiiHub) ->
         stable, _, dp = ent.unique_id.rpartition("_")
         dev = hub.devices.get(stable)
         spec = dev.dps.get(dp) if dev else None
-        if dev is not None and (dev.is_gateway or (spec and (spec.code or "") in DANGEROUS_CODES)):
+        lights = {ch["switch"].dp for ch in light_channels(dev)} if dev else set()
+        if dev is not None and (
+            dev.is_gateway or dp in lights or (spec and (spec.code or "") in DANGEROUS_CODES)
+        ):
             reg.async_remove(ent.entity_id)
 
 

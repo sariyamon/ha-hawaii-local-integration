@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 import json
+import re
 from typing import Any
 
 from .const import GATEWAY_CATEGORIES
@@ -26,6 +27,16 @@ class DpSpec:
     type: str = "Boolean"      # Boolean / Integer / Enum / String / Json / Raw
     writable: bool = True
     from_device: bool = False  # found on the device itself, not in Tuya's profile
+    values: dict[str, Any] = field(default_factory=dict)  # min/max/scale/step or range
+
+    def scaled(self, raw: Any) -> float | None:
+        """Device value -> real number (Integer DPs carry a decimal scale)."""
+        if raw is None:
+            return None
+        try:
+            return float(raw) / (10 ** int(self.values.get("scale", 0)))
+        except (TypeError, ValueError):
+            return None
 
 
 @dataclass
@@ -109,7 +120,8 @@ def from_cloud(dev: Any) -> DeviceInfo:
         item = (strat or {}).get("config_item") or {}
         vtype = item.get("valueType") or _type_of(get, code)
         dps[str(dp_id)] = DpSpec(
-            dp=str(dp_id), code=code, type=vtype or "Raw", writable=code in functions
+            dp=str(dp_id), code=code, type=vtype or "Raw", writable=code in functions,
+            values=_values_of(get, code, item),
         )
     status = get("status") or {}
     return DeviceInfo(
@@ -128,12 +140,73 @@ def from_cloud(dev: Any) -> DeviceInfo:
     )
 
 
+def _parse_json(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip().startswith("{"):
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            return {}
+        return data if isinstance(data, dict) else {}
+    return {}
+
+
+def _values_of(get, code: str | None, item: dict[str, Any]) -> dict[str, Any]:
+    """Ranges from the Tuya profile: {'min','max','scale','step'} or {'range': [...]}."""
+    values = _parse_json(item.get("valueDesc"))
+    for source in (get("function") or {}, get("status_range") or {}):
+        spec = source.get(code) if code else None
+        if spec is None:
+            continue
+        raw = getattr(spec, "values", None) if not isinstance(spec, dict) else spec.get("values")
+        for key, val in _parse_json(raw).items():
+            values.setdefault(key, val)
+    keep = ("min", "max", "scale", "step", "range", "unit")
+    return {k: v for k, v in values.items() if k in keep}
+
+
 def _type_of(get, code: str | None) -> str | None:
     for source in (get("function") or {}, get("status_range") or {}):
         spec = source.get(code) if code else None
         if spec is not None:
             return getattr(spec, "type", None) or (spec.get("type") if isinstance(spec, dict) else None)
     return None
+
+
+_LIGHT = re.compile(r"^switch_led(_\d+)?$")
+_COVER = re.compile(r"^control(_\d+)?$")
+
+
+def light_channels(dev: DeviceInfo) -> list[dict[str, DpSpec | None]]:
+    """Dimmable lights: switch_led[_N] with its bright_value[_N] (if any)."""
+    by_code = {s.code: s for s in dev.dps.values() if s.code}
+    out = []
+    for code, spec in sorted(by_code.items()):
+        m = _LIGHT.match(code)
+        if not m or spec.type != "Boolean":
+            continue
+        suffix = m.group(1) or ""
+        bright = by_code.get(f"bright_value{suffix}") or (by_code.get("bright_value_v2") if not suffix else None)
+        out.append({"switch": spec, "bright": bright})
+    return out
+
+
+def cover_channels(dev: DeviceInfo) -> list[dict[str, DpSpec | None]]:
+    """Curtains: control[_N] (open/stop/close) with percent_control / percent_state."""
+    by_code = {s.code: s for s in dev.dps.values() if s.code}
+    out = []
+    for code, spec in sorted(by_code.items()):
+        m = _COVER.match(code)
+        if not m or spec.type != "Enum" or not spec.writable:
+            continue
+        suffix = m.group(1) or ""
+        out.append({
+            "control": spec,
+            "set": by_code.get(f"percent_control{suffix}"),
+            "state": by_code.get(f"percent_state{suffix}"),
+        })
+    return out
 
 
 def dp_name(spec: DpSpec, total_switches: int) -> str:

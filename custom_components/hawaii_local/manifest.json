@@ -1,14 +1,28 @@
 {
   "domain": "hawaii_local",
   "name": "Hawaii Local",
-  "codeowners": ["@sariyamon"],
+  "after_dependencies": [
+    "frontend",
+    "http"
+  ],
+  "codeowners": [
+    "@sariyamon"
+  ],
   "config_flow": true,
-  "dependencies": ["network"],
+  "dependencies": [
+    "network"
+  ],
   "documentation": "https://github.com/sariyamon/ha-hawaii-local-integration",
   "integration_type": "hub",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/sariyamon/ha-hawaii-local-integration/issues",
-  "loggers": ["tinytuya", "tuya_sharing"],
-  "requirements": ["tinytuya>=1.13.0", "tuya-device-sharing-sdk>=0.2.1"],
-  "version": "0.2.0"
+  "loggers": [
+    "tinytuya",
+    "tuya_sharing"
+  ],
+  "requirements": [
+    "tinytuya>=1.13.0",
+    "tuya-device-sharing-sdk>=0.2.1"
+  ],
+  "version": "0.3.0"
 }

@@ -127,6 +127,7 @@ class FakeDevice:
 # ---------------------------------------------------------------- fake Tuya account
 GW_ID, WIFI_ID, OFFICE_ID, PLUG_ID = "gw0001", "wifi0001", "office0001", "plug0001"
 OFFICE_NODE, PLUG_NODE = "d878f0fffe920e8d", "a4c1380000000001"
+CURTAIN_NODE, DIMMER_NODE = "a4c138c7e2feb0ee", "a4c13847c070befc"
 
 
 def cloud_devices(office_key="subkey", wifi_key="wifikey", office_id=OFFICE_ID, office_uuid=OFFICE_NODE):
@@ -143,6 +144,18 @@ def cloud_devices(office_key="subkey", wifi_key="wifikey", office_id=OFFICE_ID, 
         DeviceInfo(id=PLUG_ID, stable=PLUG_NODE, name="Plug", key=office_key, category="cz", sub=True,
                    node_candidates=[PLUG_NODE], cloud_online=True,
                    dps={"1": DpSpec("1", "switch_1")}, cloud_status={"switch_1": True}),
+        DeviceInfo(id="curtain01", stable=CURTAIN_NODE, name="Curtain", key=office_key, category="cl",
+                   sub=True, node_candidates=[CURTAIN_NODE], cloud_online=True,
+                   dps={"1": DpSpec("1", "control", "Enum", values={"range": ["open", "stop", "close", "continue"]}),
+                        "2": DpSpec("2", "percent_control", "Integer", values={"min": 0, "max": 100}),
+                        "3": DpSpec("3", "percent_state", "Integer", False, values={"min": 0, "max": 100}),
+                        "4": DpSpec("4", "control_back_mode", "Enum", values={"range": ["forward", "back"]}),
+                        "6": DpSpec("6", "auto_power", "Boolean")}),
+        DeviceInfo(id="dimmer01", stable=DIMMER_NODE, name="Dimmer", key=office_key, category="tgkg",
+                   sub=True, node_candidates=[DIMMER_NODE], cloud_online=True,
+                   dps={"1": DpSpec("1", "switch_led_1", "Boolean"),
+                        "2": DpSpec("2", "bright_value_1", "Integer", values={"min": 10, "max": 1000}),
+                        "26": DpSpec("26", "backlight_switch", "Boolean", False)}),
     ]
 
 
@@ -168,7 +181,9 @@ def lan():
     NET.hosts["192.168.0.87"] = Hardware(
         GW_ID, "subkey", 3.4, gateway=True,
         children={OFFICE_NODE: {"101": False, "102": True, "103": False, "107": False},
-                  PLUG_NODE: {"1": False}},
+                  PLUG_NODE: {"1": False},
+                  CURTAIN_NODE: {"1": "stop", "2": 40, "3": 40, "6": False},
+                  DIMMER_NODE: {"1": False, "2": 500, "26": True}},
     )
     NET.hosts["192.168.0.50"] = Hardware(WIFI_ID, "wifikey", 3.3, dps={"1": False, "2": True})
     FakeCloud.devices = cloud_devices()

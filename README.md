@@ -10,6 +10,8 @@ Sign in with your **Smart Life / Tuya Smart** app once, and control your Tuya sw
 - **Local control with instant updates.** Each device, or each gateway, keeps a persistent connection. Switching in the Tuya app or at the wall shows up in Home Assistant straight away.
 - **Gateway sub-devices.** Zigbee and BLE modules behind a Tuya gateway are found and matched to their gateway automatically.
 - **Broken cloud profiles handled.** If a device has more channels than Tuya's cloud profile lists, the extra channels are read from the device itself and get their own switches.
+- **Curtains and dimmers.** Curtain switches become curtains (open, stop, close, position) and dimmer switches become dimmable lights.
+- **Wall-switch cards.** Ready-made dashboard cards that look like Hawaii Automations switches (see [Cards](#cards)).
 - **Automatic IP finding.** Devices are found from their own network broadcasts. When a device's IP changes, it's followed within seconds. If broadcasts can't reach Home Assistant (for example Docker without host networking), Hawaii Local scans your network and identifies each device by its key.
 - **Reset and re-pair recovery.** When a device is reset or re-paired in the Tuya app (new key, sometimes a new ID), Hawaii Local notices the failed login, re-imports from your Tuya account and reconnects. Entity IDs, dashboards and automations stay the same, because devices are tracked by hardware rather than Tuya ID.
 - **Works without internet.** Devices and keys are cached locally. The Tuya cloud is only a fallback for devices that can't be reached on your network.
@@ -32,6 +34,33 @@ Phase 1 covers **on/off data points**: switches, multi-gang switches, sockets, s
 | Set a device's IP address or protocol | Fixes an IP or protocol for one device or gateway. Leave it empty for automatic, which is recommended |
 
 Each switch shows a `connection` attribute: `local` or `cloud`.
+
+## Cards
+
+Hawaii Local adds switch cards that look like Hawaii Automations wall switches. They load by themselves (no resource to add): edit a dashboard → **Add card** → search **Hawaii**. Pick **any one entity** of a switch and the card shows the whole switch – every key with its name and indicator light. Tap a key to switch it, hold it for details.
+
+| Card | What it shows |
+| --- | --- |
+| `custom:hawaii-key-switch-card` | 1–12 keys: columns, rows or grid; 2, 4 or 8 module size picked automatically |
+| `custom:hawaii-key-socket-card` | Keys + universal socket (4 module); the socket can be a smart socket |
+| `custom:hawaii-curtain-switch-card` | Open / pause / close with position bar; one or two curtains |
+| `custom:hawaii-knob-dimmer-card` | Rotary dimmer with round level display – drag the ring, scroll, or tap the centre; optional Sc1 / Sc2 scene keys |
+| `custom:hawaii-knob-keys-card` | Rotary dimmer ringed by four keys |
+
+Finishes: black glass, aluminium grey, champagne gold, white glass, brushed silver. Indicator lights: ice blue, warm white, amber, green.
+
+```yaml
+type: custom:hawaii-key-switch-card
+entity: switch.office_chandelier_1   # any one key – the whole switch is shown
+layout: columns                      # auto | columns | rows | grid
+finish: black                        # black | grey | gold | white | silver
+indicator: blue                      # blue | white | amber | green
+exclude: [switch.office_channel_119] # hide keys you don't use
+```
+
+The cards work with any switch, light, curtain or fan in Home Assistant, not only Hawaii Local devices.
+
+![Hawaii switch cards](docs/cards.png)
 
 ## Tips
 
