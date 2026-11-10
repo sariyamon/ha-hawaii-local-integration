@@ -45,13 +45,17 @@ class Endpoint:
     version: str | None = None            # None = try PROTOCOLS
     direct: bool = True                   # False = gateway (data comes from children)
     children: list[Child] = field(default_factory=list)
+    alt_ids: list[str] = field(default_factory=list)  # other ids a gateway may answer to
+
+    def ids(self) -> list[str]:
+        return list(dict.fromkeys(i for i in [self.dev_id, *self.alt_ids] if i))
 
 
 @dataclass
 class Callbacks:
     """Called from the connection thread; the hub hops onto the event loop."""
 
-    connected: Callable[[str, str, str], None]           # endpoint stable, version, key
+    connected: Callable[[str, str, str, str], None]      # endpoint stable, version, key, id used
     disconnected: Callable[[str, str], None]              # endpoint stable, reason: offline|key
     status: Callable[[str, dict[str, Any]], None]        # device stable, dps
     subdevices: Callable[[str, set[str], set[str]], None]  # endpoint stable, online, all nodes
@@ -122,44 +126,42 @@ class LocalConnection(threading.Thread):
             self._stop.wait(delay)
             delay = min(delay * 2, RECONNECT_MAX)
 
-    def _make(self, key: str, version: str) -> Any:
-        dev = tinytuya.Device(
-            self.endpoint.dev_id, self.endpoint.ip, key, version=float(version), persist=True,
+    def _make(self, dev_id: str, key: str, version: str) -> Any:
+        return tinytuya.Device(
+            dev_id, self.endpoint.ip, key, version=float(version), persist=True,
             connection_timeout=4, connection_retry_limit=1, connection_retry_delay=1,
         )
-        return dev
 
     def _connect(self) -> str:
         ep = self.endpoint
         versions = [ep.version] if ep.version else PROTOCOLS
         saw_wrong_key = False
-        for version in versions:
-            for key in dict.fromkeys(k for k in ep.keys if k):
-                if self._stop.is_set():
-                    return "offline"
-                try:
-                    dev = self._make(key, version)
-                    probe = dev.status() if ep.direct else dev.subdev_query()
-                except Exception as err:  # noqa: BLE001
-                    _LOGGER.debug("%s: connect error %s", ep.dev_id, err)
-                    return "offline"
-                code = _err(probe)
-                _LOGGER.debug("%s at %s v%s: %s", ep.dev_id, ep.ip, version, code or "ok")
-                if code in UNREACHABLE_ERRORS:
-                    _close_quietly(dev)
-                    return "offline"
-                if code in NO_REPLY_ERRORS:
-                    _close_quietly(dev)
-                    continue
-                if code in WRONG_KEY_ERRORS or (probe is None and ep.direct):
-                    saw_wrong_key = True
-                    _close_quietly(dev)
-                    continue
-                self._parent = dev
-                ep.version = version
-                self._cb.connected(ep.stable, version, key)
-                self._setup_targets(probe)
-                return "ok"
+        for version, key, dev_id in _attempts(versions, ep.keys, ep.ids()):
+            if self._stop.is_set():
+                return "offline"
+            try:
+                dev = self._make(dev_id, key, version)
+                probe = dev.status() if ep.direct else dev.subdev_query()
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("%s: connect error %s", ep.dev_id, err)
+                return "offline"
+            code = _err(probe)
+            _LOGGER.debug("%s at %s v%s as %s: %s", ep.dev_id, ep.ip, version, dev_id, code or "ok")
+            if code in UNREACHABLE_ERRORS:
+                _close_quietly(dev)
+                return "offline"
+            if code in NO_REPLY_ERRORS:
+                _close_quietly(dev)
+                continue
+            if code in WRONG_KEY_ERRORS or (probe is None and ep.direct):
+                saw_wrong_key = True
+                _close_quietly(dev)
+                continue
+            self._parent = dev
+            ep.version, ep.dev_id = version, dev_id
+            self._cb.connected(ep.stable, version, key, dev_id)
+            self._setup_targets(probe)
+            return "ok"
         return "key" if saw_wrong_key else "offline"
 
     def _setup_targets(self, probe: Any) -> None:
@@ -246,27 +248,48 @@ def _close_quietly(dev: Any) -> None:
         pass
 
 
-def probe_endpoint(ip: str, dev_id: str, keys: list[str], direct: bool, version: str | None) -> tuple[str, str] | None:
-    """Blocking: return (version, key) if the device at ip accepts dev_id/key."""
-    for ver in [version] if version else PROTOCOLS:
-        for key in dict.fromkeys(k for k in keys if k):
-            dev = tinytuya.Device(
-                dev_id, ip, key, version=float(ver), connection_timeout=2,
-                connection_retry_limit=1, connection_retry_delay=0,
-            )
-            try:
-                result = dev.status() if direct else dev.subdev_query()
-            except Exception:  # noqa: BLE001
-                result = {"Err": "901"}
-            finally:
-                _close_quietly(dev)
-            code = _err(result)
-            _LOGGER.debug(
-                "Probe %s as %s v%s key …%s: %s", ip, dev_id, ver, key[-3:],
-                code or ("no reply" if result is None else "ok"),
-            )
-            if code in UNREACHABLE_ERRORS:
-                return None
-            if code is None and (result is not None or not direct):
-                return ver, key
+def _attempts(versions: list[str], keys: list[str], ids: list[str]):
+    """(version, key, id) combinations, most likely first."""
+    keys = list(dict.fromkeys(k for k in keys if k))
+    for version in versions:
+        for key in keys:
+            for dev_id in ids:
+                yield version, key, dev_id
+
+
+def probe_endpoint(
+    ip: str, dev_ids: list[str] | str, keys: list[str], direct: bool, version: str | None
+) -> tuple[str, str, str] | None:
+    """Blocking: return (version, key, id) if the device at ip accepts one of them.
+
+    A gateway that accepts the key but not the id hangs up (905), so other ids
+    (its sub-devices') are tried with that key; a wrong key (914) skips them.
+    """
+    ids = [dev_ids] if isinstance(dev_ids, str) else list(dict.fromkeys(i for i in dev_ids if i))
+    bad_keys: set[tuple[str, str]] = set()
+    for ver, key, dev_id in _attempts([version] if version else PROTOCOLS, keys, ids):
+        if (ver, key) in bad_keys:
+            continue
+        dev = tinytuya.Device(
+            dev_id, ip, key, version=float(ver), connection_timeout=2,
+            connection_retry_limit=1, connection_retry_delay=0,
+        )
+        try:
+            result = dev.status() if direct else dev.subdev_query()
+        except Exception:  # noqa: BLE001
+            result = {"Err": "901"}
+        finally:
+            _close_quietly(dev)
+        code = _err(result)
+        _LOGGER.debug(
+            "Probe %s as %s v%s key …%s: %s", ip, dev_id, ver, key[-3:],
+            code or ("no reply" if result is None else "ok"),
+        )
+        if code in UNREACHABLE_ERRORS:
+            return None
+        if code in WRONG_KEY_ERRORS:
+            bad_keys.add((ver, key))
+            continue
+        if code is None and (result is not None or not direct):
+            return ver, key, dev_id
     return None

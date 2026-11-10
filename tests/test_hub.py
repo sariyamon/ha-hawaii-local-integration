@@ -12,7 +12,7 @@ from homeassistant.helpers import entity_registry as er
 from custom_components.hawaii_local.const import DOMAIN
 
 from .conftest import (
-    GW_ID, OFFICE_NODE, WIFI_ID, FakeCloud, cloud_devices, wait_for,
+    GW_ID, OFFICE_ID, OFFICE_NODE, WIFI_ID, FakeCloud, cloud_devices, wait_for,
 )
 
 DATA = {
@@ -187,6 +187,7 @@ async def test_docker_bridge_finds_gateway_listed_as_sub(hass: HomeAssistant, la
 async def test_gateway_that_hangs_up_on_wrong_key(hass: HomeAssistant, lan) -> None:
     """Real-world: the gateway's own cloud key is stale and it drops wrong keys (905)."""
     lan.hosts["192.168.0.87"].wrong_key_error = "905"
+    lan.hosts["192.168.0.87"].answers_to = {OFFICE_ID}  # ignores its own id, like the real one
     for dev in FakeCloud.devices:
         if dev.id == GW_ID:
             dev.key = "stale-gateway-key"
@@ -195,7 +196,10 @@ async def test_gateway_that_hangs_up_on_wrong_key(hass: HomeAssistant, lan) -> N
         hub = entry.runtime_data
         assert await hub.async_scan(force=True) == 1
     assert hub.endpoints["gwuuid"]["ip"] == "192.168.0.87"
+    assert hub.endpoints["gwuuid"]["dev_id"] == OFFICE_ID
     await wait_for(hass, lambda: OFFICE_NODE in hub.local_online)
+    await hass.services.async_call("switch", "turn_on", {"entity_id": "switch.office_channel_103"}, blocking=True)
+    await wait_for(hass, lambda: (OFFICE_NODE, {"103": True}) in lan.hosts["192.168.0.87"].received)
     await hass.config_entries.async_unload(entry.entry_id)
 
 

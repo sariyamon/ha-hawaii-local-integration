@@ -298,7 +298,10 @@ class HawaiiHub:
             keys = [info.get("key", ""), dev.key] + [
                 self.devices[c.stable].key for c in children
             ] + [d.key for d in self.devices.values() if d.sub]
-            return Endpoint(stable, dev.id, info["ip"], keys, info.get("version"), False, children)
+            return Endpoint(
+                stable, info.get("dev_id") or dev.id, info["ip"], keys, info.get("version"),
+                False, children, alt_ids=self._gateway_ids(dev),
+            )
         return Endpoint(stable, dev.id, info["ip"], [dev.key, info.get("key", "")], info.get("version"))
 
     def _children_of(self, gw_stable: str) -> list[Child]:
@@ -357,10 +360,10 @@ class HawaiiHub:
 
     # ------------------------------------------------------------------ callbacks
     @callback
-    def _on_connected(self, ep_stable: str, version: str, key: str) -> None:
+    def _on_connected(self, ep_stable: str, version: str, key: str, dev_id: str) -> None:
         self._failures[ep_stable] = 0
         info = self.endpoints.setdefault(ep_stable, {})
-        info.update(version=version, key=key)
+        info.update(version=version, key=key, dev_id=dev_id)
         dev = self.devices.get(ep_stable)
         if dev is not None and not dev.is_gateway:
             self._set_online(ep_stable, True)
@@ -524,14 +527,17 @@ class HawaiiHub:
                 dev = self.devices[stable]
                 ep = self._endpoint_for(stable)
                 keys = ep.keys if ep else self._candidate_keys(dev)
+                ids = self._gateway_ids(dev) if dev.is_gateway else [dev.id]
                 hit = await self.hass.async_add_executor_job(
-                    probe_endpoint, host, dev.id, keys, not dev.is_gateway,
+                    probe_endpoint, host, ids, keys, not dev.is_gateway,
                     self.endpoints.get(stable, {}).get("version"),
                 )
                 if hit and stable not in claimed:
-                    version, key = hit
+                    version, key, dev_id = hit
                     claimed[stable] = host
-                    self.endpoints[stable] = {"ip": host, "version": version, "key": key, "source": "scan"}
+                    self.endpoints[stable] = {
+                        "ip": host, "version": version, "key": key, "dev_id": dev_id, "source": "scan",
+                    }
                     _LOGGER.info("%s: found at %s by network scan", dev.name, host)
                     return
 
@@ -541,6 +547,10 @@ class HawaiiHub:
         self.last_scan_found = len(claimed)
         self._save()
         return len(claimed)
+
+    def _gateway_ids(self, dev: DeviceInfo) -> list[str]:
+        """Ids a gateway may answer to: its own, then its sub-devices'."""
+        return [dev.id] + [d.id for d in self.devices.values() if d.sub]
 
     def _candidate_keys(self, dev: DeviceInfo) -> list[str]:
         if dev.is_gateway:

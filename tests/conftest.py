@@ -33,6 +33,7 @@ class Hardware:
     outbox: deque = field(default_factory=deque)
     received: list = field(default_factory=list)
     wrong_key_error: str = "914"  # some gateways just hang up instead ("905")
+    answers_to: set | None = None  # gateway that only answers to these ids (else hangs up)
 
 
 class Network:
@@ -71,6 +72,8 @@ class FakeDevice:
             return {"Err": "901"}
         if hw.key != root.key or hw.version != root.version:
             return {"Err": hw.wrong_key_error}
+        if hw.answers_to is not None:
+            return None if root.id in hw.answers_to else {"Err": "905"}
         if hw.dev_id != root.id and not (hw.gateway and hw.version >= 3.4):
             return {"Err": hw.wrong_key_error}
         return None
