@@ -184,6 +184,21 @@ async def test_docker_bridge_finds_gateway_listed_as_sub(hass: HomeAssistant, la
     await hass.config_entries.async_unload(entry.entry_id)
 
 
+async def test_gateway_that_hangs_up_on_wrong_key(hass: HomeAssistant, lan) -> None:
+    """Real-world: the gateway's own cloud key is stale and it drops wrong keys (905)."""
+    lan.hosts["192.168.0.87"].wrong_key_error = "905"
+    for dev in FakeCloud.devices:
+        if dev.id == GW_ID:
+            dev.key = "stale-gateway-key"
+    with patch("custom_components.hawaii_local.hub.find_open_hosts", return_value=["192.168.0.87"]):
+        entry = await _setup(hass)
+        hub = entry.runtime_data
+        assert await hub.async_scan(force=True) == 1
+    assert hub.endpoints["gwuuid"]["ip"] == "192.168.0.87"
+    await wait_for(hass, lambda: OFFICE_NODE in hub.local_online)
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
 async def test_networks_option(hass: HomeAssistant, lan) -> None:
     entry = await _setup(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)

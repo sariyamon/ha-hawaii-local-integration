@@ -20,7 +20,9 @@ from .const import HEARTBEAT, PROTOCOLS, RECEIVE_TIMEOUT, RECONNECT_MAX, RECONNE
 
 _LOGGER = logging.getLogger(__name__)
 
-OFFLINE_ERRORS = {"901", "905"}
+OFFLINE_ERRORS = {"901", "905"}      # while connected: the link dropped
+UNREACHABLE_ERRORS = {"901"}         # while connecting: nothing answers at this IP
+NO_REPLY_ERRORS = {"905", "902"}     # while connecting: some gateways just hang up on a wrong key
 NO_DATA_ERRORS = {"902"}
 WRONG_KEY_ERRORS = {"914", "904", "900"}  # wrong key or wrong protocol version
 
@@ -143,9 +145,12 @@ class LocalConnection(threading.Thread):
                     return "offline"
                 code = _err(probe)
                 _LOGGER.debug("%s at %s v%s: %s", ep.dev_id, ep.ip, version, code or "ok")
-                if code in OFFLINE_ERRORS:
+                if code in UNREACHABLE_ERRORS:
                     _close_quietly(dev)
                     return "offline"
+                if code in NO_REPLY_ERRORS:
+                    _close_quietly(dev)
+                    continue
                 if code in WRONG_KEY_ERRORS or (probe is None and ep.direct):
                     saw_wrong_key = True
                     _close_quietly(dev)
@@ -260,7 +265,7 @@ def probe_endpoint(ip: str, dev_id: str, keys: list[str], direct: bool, version:
                 "Probe %s as %s v%s key …%s: %s", ip, dev_id, ver, key[-3:],
                 code or ("no reply" if result is None else "ok"),
             )
-            if code in OFFLINE_ERRORS:
+            if code in UNREACHABLE_ERRORS:
                 return None
             if code is None and (result is not None or not direct):
                 return ver, key

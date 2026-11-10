@@ -32,6 +32,7 @@ class Hardware:
     children: dict[str, dict[str, Any]] = field(default_factory=dict)  # node -> dps
     outbox: deque = field(default_factory=deque)
     received: list = field(default_factory=list)
+    wrong_key_error: str = "914"  # some gateways just hang up instead ("905")
 
 
 class Network:
@@ -68,8 +69,10 @@ class FakeDevice:
         hw = NET.at(root.address)
         if hw is None:
             return {"Err": "901"}
-        if hw.dev_id != root.id or hw.key != root.key or hw.version != root.version:
-            return {"Err": "914"}
+        if hw.key != root.key or hw.version != root.version:
+            return {"Err": hw.wrong_key_error}
+        if hw.dev_id != root.id and not (hw.gateway and hw.version >= 3.4):
+            return {"Err": hw.wrong_key_error}
         return None
 
     def status(self, nowait=False):
