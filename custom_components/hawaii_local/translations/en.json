@@ -1,0 +1,67 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Sign in with your Tuya app",
+        "description": "Open the **Smart Life** or **Tuya Smart** app → **Me** → ⚙️ → **Account and Security** → **User Code**, and enter that code here. It is case-sensitive.",
+        "data": {
+          "user_code": "User code"
+        }
+      },
+      "scan": {
+        "title": "Scan with your Tuya app",
+        "description": "In the Smart Life / Tuya Smart app, tap the scan icon (top right of **Home**) and scan this code, approve the login, then press **Submit**.\n\nHawaii Local then imports your devices and controls them over your home network.",
+        "data": {
+          "qr": "QR code"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in again",
+        "description": "Your Tuya sign-in has expired or was revoked. Devices keep working locally meanwhile; sign in again so new or reset devices can be recovered.",
+        "data": {
+          "user_code": "User code"
+        }
+      }
+    },
+    "error": {
+      "invalid_user_code": "That user code wasn't accepted. Check it in the Tuya app (it is case-sensitive).",
+      "not_scanned": "The code hasn't been scanned and approved yet. A fresh code is shown; scan it, approve, then press Submit."
+    },
+    "abort": {
+      "already_configured": "This Tuya account is already added.",
+      "reauth_successful": "Signed in again.",
+      "wrong_account": "That is a different Tuya account than the one this entry uses."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Hawaii Local",
+        "description": "**{local} of {total}** devices are connected locally.\n\n{result}",
+        "menu_options": {
+          "refresh": "Re-import devices from my Tuya account",
+          "scan": "Search my network for devices now",
+          "device": "Set a device's IP address or protocol"
+        }
+      },
+      "device": {
+        "title": "Choose a device",
+        "description": "Devices and gateways with their current address.",
+        "data": {
+          "device": "Device"
+        }
+      },
+      "device_settings": {
+        "title": "{name}",
+        "description": "Leave the IP empty to find it automatically (recommended). A fixed IP stops automatic IP finding for this device.",
+        "data": {
+          "ip": "Fixed IP address",
+          "version": "Protocol version"
+        },
+        "data_description": {
+          "version": "Leave on auto unless the device needs a specific version."
+        }
+      }
+    }
+  }
+}
