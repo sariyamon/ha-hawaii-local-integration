@@ -575,6 +575,9 @@ class HawaiiHub:
         dev = self.devices[stable]
         ep = self.endpoint_of(stable)
         conn = self.connections.get(ep) if ep else None
+        if conn is not None and not conn.is_alive():
+            self._restart(ep)  # worker stopped unexpectedly: start a fresh one
+            conn = None
         sent = conn is not None and stable in self.local_online and conn.send(stable, {dp: value})
         if not sent:
             spec = dev.dps.get(dp)

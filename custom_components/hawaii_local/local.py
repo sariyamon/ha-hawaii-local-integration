@@ -98,7 +98,7 @@ class LocalConnection(threading.Thread):
 
     # ---- called from the event loop -------------------------------------------------
     def send(self, stable: str, dps: dict[str, Any]) -> bool:
-        if not self.connected:
+        if not self.connected or not self.is_alive():
             return False
         self._commands.put((stable, dps))
         return True
@@ -110,11 +110,18 @@ class LocalConnection(threading.Thread):
     def run(self) -> None:
         delay = RECONNECT_MIN
         while not self._stop.is_set():
-            outcome = self._connect()
+            try:
+                outcome = self._connect()
+            except Exception:  # noqa: BLE001 - never let the worker die
+                _LOGGER.exception("%s: unexpected error while connecting", self.endpoint.dev_id)
+                outcome = "offline"
             if outcome == "ok":
                 delay = RECONNECT_MIN
                 self.connected = True
-                self._loop()
+                try:
+                    self._loop()
+                except Exception:  # noqa: BLE001 - reconnect instead of dying
+                    _LOGGER.exception("%s: unexpected error, reconnecting", self.endpoint.dev_id)
                 self.connected = False
                 self._close()
                 if self._stop.is_set():
@@ -212,7 +219,8 @@ class LocalConnection(threading.Thread):
             if code in OFFLINE_ERRORS:
                 return
             if data and code is None:
-                self._route(data)
+                for message in _messages(data):
+                    self._route(message)
             if time.monotonic() - last_beat > HEARTBEAT:
                 last_beat = time.monotonic()
                 try:
@@ -221,7 +229,7 @@ class LocalConnection(threading.Thread):
                     return
 
     def _route(self, data: dict[str, Any]) -> None:
-        if data.get("reqType", "").startswith("subdev_online_stat"):
+        if str(data.get("reqType") or "").startswith("subdev_online_stat"):
             online, every = _nodes(data)
             self._cb.subdevices(self.endpoint.stable, online, every)
             return
@@ -231,7 +239,8 @@ class LocalConnection(threading.Thread):
         if self.endpoint.direct:
             self._cb.status(self.endpoint.stable, dps)
             return
-        cid = data.get("cid") or (data.get("data") or {}).get("cid")
+        inner = data.get("data") if isinstance(data.get("data"), dict) else {}
+        cid = data.get("cid") or inner.get("cid")
         stable = self._by_node.get(str(cid).lower()) if cid else None
         if stable:
             self._cb.status(stable, dps)
@@ -240,6 +249,15 @@ class LocalConnection(threading.Thread):
         if self._parent is not None:
             _close_quietly(self._parent)
         self._parent, self._targets, self._by_node = None, {}, {}
+
+
+def _messages(data: Any) -> list[dict[str, Any]]:
+    """tinytuya usually returns one dict, but can return several messages at once."""
+    if isinstance(data, dict):
+        return [data]
+    if isinstance(data, (list, tuple)):
+        return [m for item in data for m in _messages(item)]
+    return []
 
 
 def _close_quietly(dev: Any) -> None:

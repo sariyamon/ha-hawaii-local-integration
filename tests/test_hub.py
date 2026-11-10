@@ -203,6 +203,22 @@ async def test_gateway_that_hangs_up_on_wrong_key(hass: HomeAssistant, lan) -> N
     await hass.config_entries.async_unload(entry.entry_id)
 
 
+async def test_odd_gateway_replies_dont_stop_control(hass: HomeAssistant, lan) -> None:
+    """Real-world: the gateway sent a tuple reply, which used to kill the connection."""
+    entry = await _setup(hass)
+    hub = entry.runtime_data
+    await _broadcast_all(hass, hub, lan)
+    await wait_for(hass, lambda: OFFICE_NODE in hub.local_online)
+    gw = lan.hosts["192.168.0.87"]
+    gw.outbox.append(("garbage", None))
+    gw.outbox.append(({"dps": {"102": False}, "cid": OFFICE_NODE}, "x"))
+    await wait_for(hass, lambda: hass.states.get("switch.office_channel_102").state == "off")
+    await hass.services.async_call("switch", "turn_on", {"entity_id": "switch.office_channel_101"}, blocking=True)
+    await wait_for(hass, lambda: (OFFICE_NODE, {"101": True}) in gw.received)
+    assert hub.connections["gwuuid"].is_alive()
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
 async def test_networks_option(hass: HomeAssistant, lan) -> None:
     entry = await _setup(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
