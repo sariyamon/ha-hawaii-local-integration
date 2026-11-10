@@ -7,13 +7,14 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import SIGNAL_NEW_DPS
 from .entity import HawaiiEntity
 from .hub import HawaiiHub
-from .models import CONFIG_CODES, dp_name
+from .models import CONFIG_CODES, DANGEROUS_CODES, dp_name
 
 
 async def async_setup_entry(
@@ -21,6 +22,7 @@ async def async_setup_entry(
 ) -> None:
     hub: HawaiiHub = entry.runtime_data
     added: set[str] = set()
+    _remove_unwanted(hass, entry, hub)
 
     @callback
     def add(stables: list[str]) -> None:
@@ -44,6 +46,20 @@ async def async_setup_entry(
 
     add(list(hub.devices))
     entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_NEW_DPS, on_new_dps))
+
+
+@callback
+def _remove_unwanted(hass: HomeAssistant, entry: ConfigEntry, hub: HawaiiHub) -> None:
+    """Drop switches that should not exist: gateway settings and reset buttons."""
+    reg = er.async_get(hass)
+    for ent in er.async_entries_for_config_entry(reg, entry.entry_id):
+        if ent.domain != "switch":
+            continue
+        stable, _, dp = ent.unique_id.rpartition("_")
+        dev = hub.devices.get(stable)
+        spec = dev.dps.get(dp) if dev else None
+        if dev is not None and (dev.is_gateway or (spec and (spec.code or "") in DANGEROUS_CODES)):
+            reg.async_remove(ent.entity_id)
 
 
 class HawaiiSwitch(HawaiiEntity, SwitchEntity):

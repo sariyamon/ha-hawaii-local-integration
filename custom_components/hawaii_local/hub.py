@@ -11,9 +11,11 @@
 """
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from datetime import timedelta
 from functools import partial
+import ipaddress
 import logging
 import time
 from typing import Any
@@ -22,6 +24,7 @@ from homeassistant.components import network
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady, HomeAssistantError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.storage import Store
@@ -30,11 +33,14 @@ from .cloud import CloudAuthError, CloudError, TuyaCloud
 from .const import (
     CLOUD_REFRESH_COOLDOWN,
     CLOUD_REFRESH_INTERVAL,
+    COMMON_HOME_NETWORKS,
     CONF_ENDPOINT,
+    CONF_NETWORKS,
     CONF_OVERRIDES,
     CONF_TERMINAL_ID,
     CONF_TOKEN_INFO,
     CONF_USER_CODE,
+    CONTAINER_NETWORK,
     DISCOVERY_GRACE,
     DOMAIN,
     FAILURES_BEFORE_RESCAN,
@@ -44,7 +50,13 @@ from .const import (
     STORAGE_VERSION,
     VERSION_AUTO,
 )
-from .discovery import BroadcastListener, find_open_hosts, scan_networks
+from .discovery import (
+    BroadcastListener,
+    find_open_hosts,
+    in_container,
+    parse_networks,
+    scan_networks,
+)
 from .local import Callbacks, Child, Endpoint, LocalConnection, probe_endpoint
 from .models import DeviceInfo, DpSpec, value_type_of
 
@@ -155,6 +167,39 @@ class HawaiiHub:
         if dev.sub:
             return (self.subs.get(stable) or {}).get("gateway")
         return stable
+
+    def gateway_of(self, stable: str) -> str | None:
+        """The gateway a sub-device sits behind (known, or the only gateway)."""
+        dev = self.devices.get(stable)
+        if dev is None or not dev.sub:
+            return None
+        if link := self.subs.get(stable):
+            return link.get("gateway")
+        gateways = self.gateways()
+        return gateways[0].stable if len(gateways) == 1 else None
+
+    @callback
+    def link_to_gateway(self, stable: str) -> None:
+        """Show a sub-device as connected via its gateway in the device registry."""
+        gw = self.gateway_of(stable)
+        if gw is None:
+            return
+        reg = dr.async_get(self.hass)
+        child = reg.async_get_device(identifiers={(DOMAIN, stable)})
+        if child is None:
+            return
+        parent = reg.async_get_device(identifiers={(DOMAIN, gw)})
+        if parent is None:
+            gw_dev = self.devices[gw]
+            parent = reg.async_get_or_create(
+                config_entry_id=self.entry.entry_id,
+                identifiers={(DOMAIN, gw)},
+                name=gw_dev.name,
+                manufacturer="Tuya",
+                model=gw_dev.product_name or gw_dev.category,
+            )
+        if child.via_device_id != parent.id:
+            reg.async_update_device(child.id, via_device_id=parent.id)
 
     def _overrides(self) -> dict[str, dict[str, str]]:
         return self.entry.options.get(CONF_OVERRIDES, {})
@@ -377,6 +422,9 @@ class HawaiiHub:
                 self._set_online(dev.stable, link["node"] in online)
         if reassigned:
             self._save()
+            for sub, link in self.subs.items():
+                if link.get("gateway") == gw_stable:
+                    self.link_to_gateway(sub)
             if {(c.stable, c.node) for c in self._children_of(gw_stable)} != before:
                 self._restart(gw_stable)
 
@@ -422,6 +470,24 @@ class HawaiiHub:
                 missing.append(dev.stable)
         return missing
 
+    async def _networks_to_scan(self) -> list[ipaddress.IPv4Network]:
+        adapters = await network.async_get_adapters(self.hass)
+        addresses = [
+            (ip["address"], ip["network_prefix"])
+            for adapter in adapters if adapter.get("enabled")
+            for ip in adapter.get("ipv4", [])
+        ]
+        nets = scan_networks(addresses)
+        extra = parse_networks(self.entry.options.get(CONF_NETWORKS))
+        # networks where devices were seen before (a device that moved usually stays on its LAN)
+        extra += parse_networks([i["ip"] for i in self.endpoints.values() if i.get("ip")])
+        if in_container(addresses, CONTAINER_NETWORK):
+            extra += parse_networks(list(COMMON_HOME_NETWORKS))
+        for net in extra:
+            if net not in nets:
+                nets.append(net)
+        return nets
+
     async def async_scan(self, force: bool = False) -> int:
         """Look for missing devices on the local network. Returns how many were found."""
         if (
@@ -433,40 +499,48 @@ class HawaiiHub:
         if not missing:
             return 0
         self._last_scan = time.monotonic()
-        adapters = await network.async_get_adapters(self.hass)
-        addresses = [
-            (ip["address"], ip["network_prefix"])
-            for adapter in adapters if adapter.get("enabled")
-            for ip in adapter.get("ipv4", [])
-        ]
-        hosts = await find_open_hosts(scan_networks(addresses))
+        nets = await self._networks_to_scan()
+        hosts = await find_open_hosts(nets)
+        _LOGGER.debug("Scan of %s: Tuya port open on %s", [str(n) for n in nets], hosts)
         busy = {
             self.endpoints[s]["ip"] for s, c in self.connections.items()
             if c.connected and s in self.endpoints
         }
-        found = 0
-        for stable in missing:
-            dev = self.devices[stable]
-            ep = self._endpoint_for(stable)
-            keys = ep.keys if ep else [dev.key] + [d.key for d in self.devices.values() if d.sub]
-            for host in hosts:
-                if host in busy:
+        hosts = [h for h in hosts if h not in busy]
+        # Gateways first (they carry many devices), then Wi-Fi devices.
+        missing.sort(key=lambda s: not self.devices[s].is_gateway)
+        claimed: dict[str, str] = {}  # stable -> host
+
+        async def try_host(host: str) -> None:
+            # One host at a time per device; hosts in parallel.
+            for stable in missing:
+                if stable in claimed:
                     continue
+                dev = self.devices[stable]
+                ep = self._endpoint_for(stable)
+                keys = ep.keys if ep else self._candidate_keys(dev)
                 hit = await self.hass.async_add_executor_job(
                     probe_endpoint, host, dev.id, keys, not dev.is_gateway,
                     self.endpoints.get(stable, {}).get("version"),
                 )
-                if hit:
+                if hit and stable not in claimed:
                     version, key = hit
+                    claimed[stable] = host
                     self.endpoints[stable] = {"ip": host, "version": version, "key": key, "source": "scan"}
-                    busy.add(host)
-                    found += 1
                     _LOGGER.info("%s: found at %s by network scan", dev.name, host)
-                    self._restart(stable)
-                    break
-        self.last_scan_found = found
+                    return
+
+        await asyncio.gather(*(try_host(h) for h in hosts))
+        for stable in claimed:
+            self._restart(stable)
+        self.last_scan_found = len(claimed)
         self._save()
-        return found
+        return len(claimed)
+
+    def _candidate_keys(self, dev: DeviceInfo) -> list[str]:
+        if dev.is_gateway:
+            return [dev.key] + [d.key for d in self.devices.values() if d.sub]
+        return [dev.key]
 
     # ------------------------------------------------------------------ entities
     def value(self, stable: str, dp: str) -> Any:

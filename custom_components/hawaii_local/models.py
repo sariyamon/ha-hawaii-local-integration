@@ -7,6 +7,9 @@ from typing import Any
 
 from .const import GATEWAY_CATEGORIES
 
+# Codes never exposed as switches: one tap would wipe or reboot the device.
+DANGEROUS_CODES = ("factory_reset", "reset", "reboot", "restore_factory")
+
 # Codes that are settings rather than loads; shown as configuration switches.
 CONFIG_CODES = (
     "child_lock", "switch_backlight", "backlight", "light_mode", "relay_status",
@@ -46,9 +49,15 @@ class DeviceInfo:
     dps: dict[str, DpSpec] = field(default_factory=dict)
     cloud_status: dict[str, Any] = field(default_factory=dict)  # code -> value
 
+    def __post_init__(self) -> None:
+        # Some multi-mode gateways are listed by Tuya as sub-devices (of their own
+        # BLE/Zigbee radio). A gateway always has its own IP, so treat it as one.
+        if self.category in GATEWAY_CATEGORIES:
+            self.sub = False
+
     @property
     def is_gateway(self) -> bool:
-        return not self.sub and self.category in GATEWAY_CATEGORIES
+        return self.category in GATEWAY_CATEGORIES
 
     @property
     def code_to_dp(self) -> dict[str, str]:
@@ -56,7 +65,10 @@ class DeviceInfo:
 
     def switch_dps(self) -> list[DpSpec]:
         return sorted(
-            (s for s in self.dps.values() if s.type == "Boolean" and s.writable),
+            (
+                s for s in self.dps.values()
+                if s.type == "Boolean" and s.writable and (s.code or "") not in DANGEROUS_CODES
+            ),
             key=lambda s: int(s.dp) if s.dp.isdigit() else 0,
         )
 

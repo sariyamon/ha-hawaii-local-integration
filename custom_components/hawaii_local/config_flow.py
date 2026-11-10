@@ -11,8 +11,10 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .cloud import CloudError, qr_login_result, qr_login_start
+from .discovery import parse_networks
 from .const import (
     CONF_ENDPOINT,
+    CONF_NETWORKS,
     CONF_OVERRIDES,
     CONF_TERMINAL_ID,
     CONF_TOKEN_INFO,
@@ -125,7 +127,7 @@ class HawaiiLocalOptionsFlow(OptionsFlow):
         local = len([s for s in hub.local_online if not hub.devices[s].is_gateway])
         return self.async_show_menu(
             step_id="init",
-            menu_options=["refresh", "scan", "device"],
+            menu_options=["refresh", "scan", "networks", "device"],
             description_placeholders={"local": str(local), "total": str(total), "result": self._result},
         )
 
@@ -142,6 +144,26 @@ class HawaiiLocalOptionsFlow(OptionsFlow):
         found = await self.config_entry.runtime_data.async_scan(force=True)
         self._result = f"Network scan finished: {found} device(s) found at a new address."
         return await self.async_step_init()
+
+    async def async_step_networks(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        current = ", ".join(self.config_entry.options.get(CONF_NETWORKS, []))
+        if user_input is not None:
+            text = user_input.get(CONF_NETWORKS, "").strip()
+            nets = parse_networks(text)
+            if text and not nets:
+                errors[CONF_NETWORKS] = "invalid_networks"
+            else:
+                return self.async_create_entry(
+                    data={**self.config_entry.options, CONF_NETWORKS: [str(n) for n in nets]}
+                )
+        return self.async_show_form(
+            step_id="networks",
+            data_schema=vol.Schema(
+                {vol.Optional(CONF_NETWORKS, description={"suggested_value": current}): str}
+            ),
+            errors=errors,
+        )
 
     async def async_step_device(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         hub = self.config_entry.runtime_data

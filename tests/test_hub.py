@@ -143,5 +143,59 @@ async def test_works_offline_from_cache(hass: HomeAssistant, lan) -> None:
     await hass.config_entries.async_unload(entry.entry_id)
 
 
+async def test_docker_bridge_finds_gateway_listed_as_sub(hass: HomeAssistant, lan) -> None:
+    """Real-world: HA in Docker (172.18.x), gateway reported by Tuya as a sub-device."""
+    from custom_components.hawaii_local.models import DpSpec
+    from homeassistant.helpers import device_registry as dr
+
+    for dev in FakeCloud.devices:
+        if dev.id == GW_ID:
+            dev.sub = True  # what the cloud says
+            dev.dps = {"9": DpSpec("9", "factory_reset"), "10": DpSpec("10", "alarm_sound")}
+    scanned: list = []
+
+    async def fake_find(nets, **_):
+        scanned.extend(str(n) for n in nets)
+        return [ip for ip in lan.hosts if any(ip.startswith(str(n).rsplit(".", 1)[0] + ".") for n in nets)]
+
+    with (
+        patch("custom_components.hawaii_local.hub.network.async_get_adapters",
+              return_value=[{"enabled": True, "ipv4": [{"address": "172.18.0.2", "network_prefix": 16}]}]),
+        patch("custom_components.hawaii_local.hub.find_open_hosts", side_effect=fake_find),
+    ):
+        entry = await _setup(hass)
+        hub = entry.runtime_data
+        assert hub.devices["gwuuid"].is_gateway
+        found = await hub.async_scan(force=True)
+    assert "192.168.0.0/24" in scanned and "172.18.0.0/24" in scanned
+    assert found == 2
+    await wait_for(hass, lambda: {"wifiuuid", OFFICE_NODE} <= hub.local_online)
+    assert hass.states.get("switch.office_channel_101").attributes["connection"] == "local"
+
+    # no switches for the gateway itself (and never a factory-reset switch)
+    reg = er.async_get(hass)
+    assert not [e for e in er.async_entries_for_config_entry(reg, entry.entry_id)
+                if e.unique_id.startswith("gwuuid_")]
+    # office shows up as connected via the gateway
+    dreg = dr.async_get(hass)
+    office = dreg.async_get_device(identifiers={(DOMAIN, OFFICE_NODE)})
+    gateway = dreg.async_get_device(identifiers={(DOMAIN, "gwuuid")})
+    assert office.via_device_id == gateway.id
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_networks_option(hass: HomeAssistant, lan) -> None:
+    entry = await _setup(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "networks"})
+    bad = await hass.config_entries.options.async_configure(result["flow_id"], {"networks": "nonsense"})
+    assert bad["errors"] == {"networks": "invalid_networks"}
+    done = await hass.config_entries.options.async_configure(bad["flow_id"], {"networks": "192.168.5.0/24, 10.1.1.9"})
+    assert done["type"] == "create_entry"
+    assert entry.options["networks"] == ["192.168.5.0/24", "10.1.1.0/24"]
+    await hass.async_block_till_done()
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
 async def test_gateway_id_constant(hass: HomeAssistant, lan) -> None:
     assert GW_ID == lan.hosts["192.168.0.87"].dev_id

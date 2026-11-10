@@ -24,3 +24,13 @@ def test_from_cloud_sub_device() -> None:
     assert [s.dp for s in info.switch_dps()] == ["107"]
     assert dp_name(info.dps["107"], 1) == "Switch 7"
     assert DeviceInfo.from_dict(info.to_dict()) == info
+
+
+def test_gateway_listed_as_sub_is_still_a_gateway() -> None:
+    from custom_components.hawaii_local.models import DpSpec
+
+    gw = DeviceInfo(id="g", stable="g", name="Multi-mode gateway", key="k", category="wg2", sub=True,
+                    dps={"1": DpSpec("1", "factory_reset"), "2": DpSpec("2", "alarm_switch")})
+    assert gw.is_gateway and not gw.sub
+    assert DeviceInfo.from_dict(gw.to_dict()).is_gateway
+    assert [s.code for s in gw.switch_dps()] == ["alarm_switch"]

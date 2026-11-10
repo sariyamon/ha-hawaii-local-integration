@@ -13,6 +13,7 @@ CONF_TERMINAL_ID = "terminal_id"
 CONF_ENDPOINT = "endpoint"
 CONF_TOKEN_INFO = "token_info"
 CONF_OVERRIDES = "overrides"  # options: {stable_id: {"ip": str, "version": str}}
+CONF_NETWORKS = "networks"    # options: extra networks to scan, e.g. ["192.168.0.0/24"]
 
 PROTOCOLS = ["3.4", "3.5", "3.3", "3.1", "3.2"]  # order tried when unknown
 VERSION_AUTO = "auto"
@@ -23,6 +24,15 @@ GATEWAY_CATEGORIES = {"wg2", "wfcon", "wg", "wgsxj", "zigbee_gateway"}
 # Local network
 LOCAL_PORT = 6668
 UDP_PORTS = (6666, 6667, 7000)
+
+# Home Assistant in Docker (bridge networking) only sees its own private network,
+# not the home LAN. Then these usual home-router subnets are scanned as well.
+COMMON_HOME_NETWORKS = (
+    "192.168.0.0/24", "192.168.1.0/24", "192.168.29.0/24", "192.168.31.0/24",
+    "192.168.2.0/24", "192.168.68.0/24", "192.168.86.0/24", "192.168.100.0/24",
+    "192.168.10.0/24", "192.168.18.0/24", "10.0.0.0/24", "10.0.1.0/24",
+)
+CONTAINER_NETWORK = "172.16.0.0/12"  # Docker's default bridge networks
 
 # Timing (seconds)
 HEARTBEAT = 10

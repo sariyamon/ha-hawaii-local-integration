@@ -10,5 +10,5 @@
   "issue_tracker": "https://github.com/sariyamon/ha-hawaii-local-integration/issues",
   "loggers": ["tinytuya", "tuya_sharing"],
   "requirements": ["tinytuya>=1.13.0", "tuya-device-sharing-sdk>=0.2.1"],
-  "version": "0.1.0"
+  "version": "0.2.0"
 }

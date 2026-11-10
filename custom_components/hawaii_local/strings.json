@@ -41,6 +41,7 @@
         "menu_options": {
           "refresh": "Re-import devices from my Tuya account",
           "scan": "Search my network for devices now",
+          "networks": "Choose which networks to search",
           "device": "Set a device's IP address or protocol"
         }
       },
@@ -61,7 +62,20 @@
         "data_description": {
           "version": "Leave on auto unless the device needs a specific version."
         }
+      },
+      "networks": {
+        "title": "Networks to search",
+        "description": "Hawaii Local finds devices on Home Assistant's own network automatically. If Home Assistant runs in Docker or on a different network from your devices, add your home network here, for example 192.168.0.0/24. Separate several with commas.",
+        "data": {
+          "networks": "Extra networks"
+        },
+        "data_description": {
+          "networks": "A network like 192.168.0.0/24, or any device IP (its /24 network is searched)."
+        }
       }
+    },
+    "error": {
+      "invalid_networks": "Enter networks like 192.168.0.0/24, separated by commas."
     }
   }
 }

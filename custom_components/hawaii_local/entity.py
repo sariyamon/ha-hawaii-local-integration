@@ -24,17 +24,16 @@ class HawaiiEntity(Entity):
         # Unique id is based on the hardware, so it survives a reset / re-pair.
         self._attr_unique_id = f"{stable}_{spec.dp}"
         self._attr_name = name
-        via = hub.endpoint_of(stable) if dev.sub else None
         self._attr_device_info = HADeviceInfo(
             identifiers={(DOMAIN, stable)},
             name=dev.name,
             manufacturer="Tuya",
             model=dev.product_name or dev.category,
             model_id=dev.product_id or None,
-            via_device=(DOMAIN, via) if via else None,
         )
 
     async def async_added_to_hass(self) -> None:
+        self.hub.link_to_gateway(self.stable)
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass, SIGNAL_DEVICE_UPDATE.format(self.stable), self.async_write_ha_state

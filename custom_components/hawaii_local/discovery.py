@@ -93,8 +93,38 @@ def scan_networks(addresses: list[tuple[str, int]]) -> list[ipaddress.IPv4Networ
     return nets
 
 
+def parse_networks(values: list[str] | str | None) -> list[ipaddress.IPv4Network]:
+    """'192.168.0.0/24, 10.0.0.5' -> networks (a bare IP means its /24)."""
+    if isinstance(values, str):
+        values = values.replace(";", ",").replace(" ", ",").split(",")
+    nets: list[ipaddress.IPv4Network] = []
+    for raw in values or []:
+        raw = raw.strip()
+        if not raw:
+            continue
+        if "/" not in raw:
+            raw = f"{raw}/24"
+        try:
+            net = ipaddress.ip_network(raw, strict=False)
+        except ValueError:
+            continue
+        if net.version == 4 and net.prefixlen >= 16 and net not in nets:
+            nets.append(net)
+    return nets
+
+
+def in_container(addresses: list[tuple[str, int]], container_net: str) -> bool:
+    """True when every local address is on a Docker-style private bridge network."""
+    inside = ipaddress.ip_network(container_net)
+    private = [
+        ipaddress.ip_address(a) for a, _ in addresses
+        if not ipaddress.ip_address(a).is_loopback
+    ]
+    return bool(private) and all(a in inside for a in private)
+
+
 async def find_open_hosts(
-    networks: list[ipaddress.IPv4Network], timeout: float = 0.6, limit: int = 64
+    networks: list[ipaddress.IPv4Network], timeout: float = 0.6, limit: int = 256
 ) -> list[str]:
     """Hosts in the networks that accept connections on Tuya's local port."""
     sem = asyncio.Semaphore(limit)

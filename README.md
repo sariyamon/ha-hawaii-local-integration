@@ -35,7 +35,8 @@ Each switch shows a `connection` attribute: `local` or `cloud`.
 
 ## Tips
 
-- **Docker installs:** host networking (`network_mode: host`) lets broadcasts through so IP changes are picked up in seconds. Without it, the network scan still finds devices, just less quickly.
+- **Docker installs:** host networking (`network_mode: host`) lets broadcasts through so IP changes are picked up in seconds. Without it, Home Assistant only sees Docker's own network, so Hawaii Local also searches the usual home-router networks (192.168.0.x, 192.168.1.x, 192.168.29.x and others). If your devices are on a different network, add it under **Configure → Choose which networks to search** (for example `192.168.5.0/24`).
+- **Gateways:** multi-mode gateways that the Tuya app lists as sub-devices are still connected to directly, and their Zigbee / Bluetooth devices are shown "connected via" the gateway. Gateway reset switches are never created.
 - **Stable IPs:** a DHCP reservation for gateways in your router is still a good idea, though it isn't required.
 - **Security:** commands stay on your network, encrypted with each device's local key. Downloaded diagnostics have keys and tokens removed.
 
