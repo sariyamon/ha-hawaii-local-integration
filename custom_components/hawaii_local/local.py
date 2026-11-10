@@ -159,6 +159,7 @@ class LocalConnection(threading.Thread):
                 continue
             self._parent = dev
             ep.version, ep.dev_id = version, dev_id
+            self.connected = True  # accept commands before states are reported as local
             self._cb.connected(ep.stable, version, key, dev_id)
             self._setup_targets(probe)
             return "ok"
