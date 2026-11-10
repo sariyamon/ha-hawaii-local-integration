@@ -142,6 +142,7 @@ class LocalConnection(threading.Thread):
                     _LOGGER.debug("%s: connect error %s", ep.dev_id, err)
                     return "offline"
                 code = _err(probe)
+                _LOGGER.debug("%s at %s v%s: %s", ep.dev_id, ep.ip, version, code or "ok")
                 if code in OFFLINE_ERRORS:
                     _close_quietly(dev)
                     return "offline"
@@ -255,6 +256,10 @@ def probe_endpoint(ip: str, dev_id: str, keys: list[str], direct: bool, version:
             finally:
                 _close_quietly(dev)
             code = _err(result)
+            _LOGGER.debug(
+                "Probe %s as %s v%s key …%s: %s", ip, dev_id, ver, key[-3:],
+                code or ("no reply" if result is None else "ok"),
+            )
             if code in OFFLINE_ERRORS:
                 return None
             if code is None and (result is not None or not direct):

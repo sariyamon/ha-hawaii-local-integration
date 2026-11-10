@@ -185,10 +185,9 @@ class HawaiiHub:
         if gw is None:
             return
         reg = dr.async_get(self.hass)
-        child = reg.async_get_device(identifiers={(DOMAIN, stable)})
+        child, parent = self._registry_device(reg, stable), self._registry_device(reg, gw)
         if child is None:
             return
-        parent = reg.async_get_device(identifiers={(DOMAIN, gw)})
         if parent is None:
             gw_dev = self.devices[gw]
             parent = reg.async_get_or_create(
@@ -200,6 +199,12 @@ class HawaiiHub:
             )
         if child.via_device_id != parent.id:
             reg.async_update_device(child.id, via_device_id=parent.id)
+
+    def _registry_device(self, reg: dr.DeviceRegistry, stable: str) -> dr.DeviceEntry | None:
+        for device in dr.async_entries_for_config_entry(reg, self.entry.entry_id):
+            if (DOMAIN, stable) in device.identifiers:
+                return device
+        return None
 
     def _overrides(self) -> dict[str, dict[str, str]]:
         return self.entry.options.get(CONF_OVERRIDES, {})
