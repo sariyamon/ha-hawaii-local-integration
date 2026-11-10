@@ -107,7 +107,7 @@ async def test_reset_device_recovers_new_key_and_id(hass: HomeAssistant, lan) ->
     lan.hosts["192.168.0.87"].key = "subkey2"
     FakeCloud.devices = cloud_devices(office_key="subkey2", wifi_key="wifikey2",
                                       office_id="office0002", office_uuid="newuuid")
-    hub._last_refresh = 0  # allow an immediate refresh in the test
+    hub._last_refresh = None  # allow an immediate refresh in the test
 
     await wait_for(hass, lambda: "wifiuuid" in hub.local_online and FakeCloud.fetches >= 2
                    and hub.devices["wifiuuid"].key == "wifikey2", timeout=8)

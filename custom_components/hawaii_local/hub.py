@@ -67,8 +67,8 @@ class HawaiiHub:
         self._store = Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}")
         self._cloud: TuyaCloud | None = None
         self._listener = BroadcastListener(self._thread_safe(self._on_broadcast))
-        self._last_scan = 0.0
-        self._last_refresh = 0.0
+        self._last_scan: float | None = None     # None = never
+        self._last_refresh: float | None = None
         self._unsubs: list[Callable[[], None]] = []
         self.last_scan_found: int | None = None
         self._stopping: list[LocalConnection] = []
@@ -171,7 +171,10 @@ class HawaiiHub:
     # ------------------------------------------------------------------ cloud
     async def _refresh_cloud(self, force: bool = False) -> bool:
         """Re-import devices from the Tuya account. Returns True if anything changed."""
-        if not force and time.monotonic() - self._last_refresh < CLOUD_REFRESH_COOLDOWN:
+        if (
+            not force and self._last_refresh is not None
+            and time.monotonic() - self._last_refresh < CLOUD_REFRESH_COOLDOWN
+        ):
             return False
         self._last_refresh = time.monotonic()
         assert self._cloud is not None
@@ -421,7 +424,10 @@ class HawaiiHub:
 
     async def async_scan(self, force: bool = False) -> int:
         """Look for missing devices on the local network. Returns how many were found."""
-        if not force and time.monotonic() - self._last_scan < SCAN_COOLDOWN:
+        if (
+            not force and self._last_scan is not None
+            and time.monotonic() - self._last_scan < SCAN_COOLDOWN
+        ):
             return 0
         missing = self._missing_endpoints()
         if not missing:
